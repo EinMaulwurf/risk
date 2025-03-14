@@ -1,0 +1,238 @@
+---
+title: Market Risk Metrics
+---
+
+# Overview
+
+Value-at-Risk (VAR) and Expected-Shortfall (ES) are two metrics that are common for assessing the market risk of a portfolio. They might be used by risk managers in banks to get a quick overview over the downside-risks.
+
+The 95% VAR for example shows the maximum portfolio downdraw, excluding the worst 5% of days. Or in other words, the portfolio loss will be equal or less than the VAR in 95% of cases.
+
+Mathematically, the $\alpha$% VAR is equal to $F^{-1}(1-\alpha)$.
+
+The ES measures the mean loss when the portfolio loss is above the $\alpha$% VAR:
+$$
+\text{ES}_\alpha = \mathbb{E}[L \,|\, L \geq \text{VAR}_\alpha] = \frac{1}{1-\alpha} \int_{\alpha}^1 \text{VAR}(p) \, dp
+$$
+
+# Setup
+
+First I load the packages I will use in this analysis. The `{tidyverse}` package for most of the data-wrangling and plotting and `{tidyquant}` to get stock prices.
+
+```{r}
+#| warning: false
+#| message: false
+
+library(tidyverse)
+library(patchwork)
+library(tidyquant)
+
+ggplot2::theme_set(theme_bw())
+```
+
+Now I define the stocks that will make up the portfolio. To have some variety, I choose Apple (AAPL) for Information Technology, Exxon Mobile (XOM) for Energy, UnitedHealthCare (UNH) for Health Care, JP Morgan (JPM) for banks and Costco (COST) for Consumer Staples. I also define the portfolio weights to be equal. This could be changed of course. 
+
+I then collect the last 6 years of daily stock prices for these companies using the `tidyquant::tq_get()` function, a convenient wrapper around `quantmod::getSymbols()` which gives back a `tibble` (a nicer DataFrame) instead of time series objects. I'm just more comfortable working with tibbles.
+
+Lastly, I calculate the daily returns for each stock as well as the return of the portfolio overall.
+
+```{r}
+stocks <- c("AAPL", "XOM", "UNH", "JPM", "COST")
+weights_df <- tibble(symbol = stocks, weight = rep(1 / length(stocks), length(stocks)))
+start_date <- today() - 6 * 365
+end_date <- today()
+
+stock_data <- tq_get(stocks, from = start_date, to = end_date)
+
+stock_returns <- stock_data %>%
+  select(symbol, date, adjusted) %>%
+  group_by(symbol) %>%
+  mutate(return = (adjusted - lag(adjusted)) / lag(adjusted)) %>%
+  slice_tail(n = -1) %>%
+  ungroup()
+
+portfolio_returns <- stock_returns %>%
+  left_join(weights_df, by = join_by(symbol)) %>%
+  group_by(date) %>%
+  summarise(return = weighted.mean(return, weight))
+```
+
+Next I look at some simple metrics and plots.
+
+First, I check out the return distribution of the individual stocks and the portfolio as a whole. The distribution looks quite symmetric and more or less "normal". This goes for both the individual stocks as well as the portfolio. There seem to be some outliers for the negative returns, even going below -10%.
+
+```{r}
+p1 <- portfolio_returns %>%
+  mutate(cum_return = cumprod(1 + return)) %>%
+  ggplot(aes(x = date, y = cum_return)) +
+  geom_line()
+
+p2 <- stock_returns %>%
+  ggplot(aes(x = return, fill = symbol)) +
+  geom_histogram(bins = 100) +
+  coord_cartesian(xlim = c(-0.15, 0.15)) +
+  theme(
+    legend.position = "right",
+    legend.position.inside = c(0.9, 0.5)
+  )
+
+p3 <- portfolio_returns %>%
+  ggplot(aes(x = return)) +
+  geom_histogram(bins = 100) +
+  coord_cartesian(xlim = c(-0.15, 0.15))
+
+p1 + (p2 / p3)
+```
+
+I have a look the worst days in the portfolio. As expected, there are a lot of dates around March 2020 when the Corona Pandemic hit. The worst day for this portfolio was March 16th with a -12% return. I will come back to this number later.
+
+```{r}
+# Worst days in the portfolio
+portfolio_returns %>%
+  arrange(return) %>%
+  head(10)
+```
+
+And to wrap it up, I also look at the returns over time. This gives a sense of how uniformly (or not) volatility is distributed. The covid crash in early 2020 is clearly visible, as well as the events in 2022 that lead to uncertainty in the market.
+
+```{r}
+# Volatility over time
+portfolio_returns %>%
+  ggplot(aes(x = date, y = return)) +
+  geom_col()
+```
+
+To fit a normal distribution onto these portfolio returns, I calculate the mean and variance. This can either be done using the covariance matrix of the stocks in the portfolio, together with the weights
+$$
+\sigma^2 = \mathbf{w}' \mathbf{\Sigma} \mathbf{w}
+$$
+or with the before calculated portfolio returns.
+
+```{r}
+# stocks_vcov <- stock_returns %>%
+#   select(symbol, date, return) %>%
+#   pivot_wider(names_from = symbol, values_from = return) %>%
+#   select(-date) %>%
+#   as.matrix() %>%
+#   var()
+
+# portfolio_mean <- (colMeans(returns_matrix) %*% portfolio_weights)[1,1]
+# portfolio_var <- (t(portfolio_weights) %*% stocks_vcov %*% portfolio_weights)[1,1]
+
+portfolio_mean <- mean(portfolio_returns$return)
+portfolio_var <- var(portfolio_returns$return)
+```
+
+Using this, the portfolio returns (the solid line, as a kernel density estimation) can be plotted together with the corresponding fitted normal distribution. While the normal is not a terrible approximation, it becomes obvious that the portfolio returns are more concentrated around the mean and simultaneously have some outliers that are not captured by the normal.
+
+```{r}
+ggplot() +
+  geom_density(data = portfolio_returns, aes(x = return)) +
+  stat_function(
+    fun = dnorm, args = list(mean = portfolio_mean, sd = sqrt(portfolio_var)),
+    linetype = "dashed"
+  )
+```
+
+# Value at Risk
+
+This becomes very clear when looking at the cumulative density function (CDF) instead. This way, the sample quantiles and and theoretical quantiles can be read of the plot directly. Because I'm especially interested in the lower tail, I scaled the y-axis using a pseudo-log transformation.
+
+Looking at the 95% VAR (the 5% Quantile, in blue), both the sample (solid line) and theoretical (dashed line) quantiles lie quite close together with the theoretical quantile even being a bit more conservative. But that changes for the 99.9% VAR (0.01% Quantile, in magenta). Here, the theoretical quantile drastically underestimates the potential loss.
+
+```{r}
+#| warning: false
+empirical_var_001 <- quantile(portfolio_returns$return, 0.001, type = 2)
+normal_var_001 <- qnorm(0.001, mean = portfolio_mean, sd = sqrt(portfolio_var))
+empirical_var_05 <- quantile(portfolio_returns$return, 0.05)
+normal_var_05 <- qnorm(0.05, mean = portfolio_mean, sd = sqrt(portfolio_var))
+
+portfolio_returns %>%
+  ggplot(aes(x = return)) +
+  stat_ecdf() +
+  stat_function(
+    fun = pnorm, args = list(mean = portfolio_mean, sd = sqrt(portfolio_var)),
+    linetype = "dashed"
+  ) +
+  # Add lines showing empirical VaR values
+  geom_segment(aes(x = empirical_var_001, xend = empirical_var_001, y = 0, yend = 0.001), color = "magenta") +
+  geom_segment(aes(x = empirical_var_001, xend = min(return), y = 0.001, yend = 0.001), color = "magenta") +
+  geom_segment(aes(x = empirical_var_05, xend = empirical_var_05, y = 0, yend = 0.05), color = "blue") +
+  geom_segment(aes(x = empirical_var_05, xend = min(return), y = 0.05, yend = 0.05), color = "blue") +
+  # Add lines showing normal distribution VaR
+  geom_segment(aes(x = normal_var_001, xend = normal_var_001, y = 0, yend = 0.001), color = "magenta", linetype = "dashed") +
+  geom_segment(aes(x = normal_var_001, xend = min(return), y = 0.001, yend = 0.001), color = "magenta", linetype = "dashed") +
+  geom_segment(aes(x = normal_var_05, xend = normal_var_05, y = 0, yend = 0.05), color = "blue", linetype = "dashed") +
+  geom_segment(aes(x = normal_var_05, xend = min(return), y = 0.05, yend = 0.05), color = "blue", linetype = "dashed") +
+  # Scale options and transformation
+  scale_y_continuous(
+    transform = scales::pseudo_log_trans(sigma = .001),
+    breaks = c(0, 0.001, 0.01, 0.05, 0.25, 0.5, 1)
+  ) +
+  scale_x_continuous(breaks = seq(-0.125, 0.1, by = 0.025), limits = c(-0.125, 0.025))
+```
+
+This can also be seen by looking at the raw numbers.
+
+Below, I use the standard algorithm for computing the quantiles. In the plot above, I chose a different one so that the quantile lines up nicely with the steps in the CDF. Usually, this would not result in a big difference. But for small sample sizes or extreme quantiles like here, it can.
+
+```{r}
+# 95% VAR
+qnorm(0.05, mean = portfolio_mean, sd = sqrt(portfolio_var))
+quantile(portfolio_returns$return, probs = 0.05) %>% unname()
+
+# 99% VAR
+qnorm(0.01, mean = portfolio_mean, sd = sqrt(portfolio_var))
+quantile(portfolio_returns$return, probs = 0.01) %>% unname()
+
+# 99.9% VAR
+qnorm(0.001, mean = portfolio_mean, sd = sqrt(portfolio_var))
+quantile(portfolio_returns$return, probs = 0.001) %>% unname()
+```
+
+And the worst day for our portfolio should basically be impossible when trusting the normal distribution.
+
+```{r}
+# Looking at extremely unlikely events like we have seen on 2020-03-16
+portfolio_returns %>%
+  pull(return) %>%
+  min() %>%
+  pnorm(mean = portfolio_mean, sd = sqrt(portfolio_var))
+```
+
+# Expected Shortfall
+
+ES gives another way to think about loss in the portfolio. It measures "how bad things get, when they get bad".
+
+For calculating ES, the historical data can be used directly by calculating the mean of all returns below a certain VAR. And when using the normal distribution with the portfolio mean and variance, there exists a closed form solution, so that the integral presented above does not need to be calculated:
+$$
+\text{ES}_\alpha = \mu - \sigma \cdot \frac{\phi(z_{\alpha})}{\alpha}
+$$
+
+```{r}
+# 95% ES
+portfolio_returns %>%
+  filter(return < quantile(return, probs = 0.05)) %>%
+  pull(return) %>%
+  mean()
+
+portfolio_mean - sqrt(portfolio_var) * dnorm(qnorm(0.05, 0, 1)) / 0.05
+
+# 99% ES
+portfolio_returns %>%
+  filter(return < quantile(return, probs = 0.01)) %>%
+  pull(return) %>%
+  mean()
+
+portfolio_mean - sqrt(portfolio_var) * dnorm(qnorm(0.01, 0, 1)) / 0.01
+
+# 99.9% ES
+portfolio_returns %>%
+  filter(return < quantile(return, probs = 0.001)) %>%
+  pull(return) %>%
+  mean()
+
+portfolio_mean - sqrt(portfolio_var) * dnorm(qnorm(0.001, 0, 1)) / 0.001
+```
+
+In contrast to VAR, the ES is always larger when using the historical data for this portfolio. This is because ES will always take into account the worst returns as well.

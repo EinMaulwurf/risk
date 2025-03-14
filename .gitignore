@@ -1,1 +1,4 @@
 /.quarto/
+.Rproj.user
+_site
+deploy.sh

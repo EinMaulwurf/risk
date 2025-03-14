@@ -1,5 +1,20 @@
 project:
-  title: ""Value at Risk""
+  type: website
+  title: Value at Risk
 
-
-
+format:
+  html:
+    theme:
+      light: flatly
+      dark: darkly
+    toc: true
+    number-sections: true
+    #css: styles.css
+    #html-math-method: katex
+    code-link: true
+    anchor-sections: true
+    fig-cap-location: margin
+    reference-location: margin
+    footnotes-hover: true
+    highlight-style: monokai
+    embed-resources: true
