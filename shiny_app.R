@@ -1,4 +1,5 @@
 library(shiny)
+library(bslib)
 options(shiny.mathjax.url = "https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js")
 library(dplyr)
 library(tidyr)
@@ -59,7 +60,7 @@ ui <- fluidPage(
             selected = list("AAPL", "XOM"),
             multiple = TRUE
           ),
-          actionButton("reset", "Reset")
+          actionButton("reset_portfolio", "Reset")
         ),
         tabPanel(
           "More",
@@ -79,7 +80,8 @@ ui <- fluidPage(
             value = 0.001,
             min = 0.0001,
             max = 0.1
-          )
+          ),
+          actionButton("reset_plot", "Reset")
         )
       )
     ),
@@ -91,7 +93,42 @@ ui <- fluidPage(
         tabPanel("Daily Returns", plotOutput(outputId = "dailyReturnsPlot")),
         tabPanel("Distribution", plotOutput(outputId = "returnsDistribution")),
         tabPanel("VAR Plot", plotOutput(outputId = "varPlot")),
-        tabPanel("Table", tableOutput("table"))
+        tabPanel(
+          "Values",
+          br(),
+          fluidRow(
+            column(6, 
+                   value_box(
+                     title = "Empirical Value-at-Risk",
+                     value = uiOutput("var_empirical_output"),
+                     theme = "bg-gradient-blue-purple",
+                   )
+            ),
+            column(6,
+                   value_box(
+                     title = "Parametric Value-at-Risk",
+                     value = uiOutput("var_normal_output"),
+                     theme = "bg-gradient-indigo-blue",
+                   )
+            )
+          ),
+          fluidRow(
+            column(6, 
+                   value_box(
+                     title = "Empirical Expected-Shortfall",
+                     value = uiOutput("es_empirical_output"),
+                     theme = "bg-gradient-blue-purple",
+                   )
+            ),
+            column(6,
+                   value_box(
+                     title = "Parametric Expected-Shortfall",
+                     value = uiOutput("es_normal_output"),
+                     theme = "bg-gradient-indigo-blue",
+                   )
+            )
+          )
+        )
       )
     )
   )
@@ -186,38 +223,76 @@ server <- function(input, output) {
         ) +
         # Add lines showing empirical VaR values
         annotate(
-          aes(x = empirical_var_alpha, xend = empirical_var_alpha, y = 0, yend = input$var_alpha), 
-          color = "magenta") +
-        geom_segment(
-          aes(x = empirical_var_alpha, xend = min(portfolio_returns()$return), y = input$var_alpha, yend = input$var_alpha), 
-          color = "magenta") +
+          geom = "segment",
+          x = empirical_var_alpha, xend = empirical_var_alpha, y = 0, yend = input$var_alpha, 
+          color = "magenta"
+        ) +
+        annotate(
+          geom = "segment",
+          x = empirical_var_alpha, xend = min(portfolio_returns()$return), y = input$var_alpha, yend = input$var_alpha, 
+          color = "magenta"
+        ) +
         # Add lines showing normal distribution VaR
-        geom_segment(
-          aes(x = normal_var_alpha, xend = normal_var_alpha, y = 0, yend = input$var_alpha), 
-          color = "magenta", linetype = "dashed") +
-        geom_segment(
-          aes(x = normal_var_alpha, xend = min(portfolio_returns()$return), y = input$var_alpha, yend = input$var_alpha), 
-          color = "magenta", linetype = "dashed") +
-        # Scale options and transformation
-        scale_y_continuous(
-          limits = c(0, 0.2),
-          transform = scales::pseudo_log_trans(sigma = .0001),
+        annotate(
+          geom = "segment",
+          x = normal_var_alpha, xend = normal_var_alpha, y = 0, yend = input$var_alpha, 
+          color = "magenta", linetype = "dashed"
+        ) +
+        annotate(
+          geom = "segment",
+          x = normal_var_alpha, xend = min(portfolio_returns()$return), y = input$var_alpha, yend = input$var_alpha, 
+          color = "magenta", linetype = "dashed"
+        )
+      
+      # Scale options and transformation
+      if(input$adjusted_scaling_checkbox) {
+        p <- p + scale_y_continuous(
+          transform = scales::pseudo_log_trans(sigma = input$pseudo_log_sigma),
           breaks = c(0, 0.001, 0.01, 0.05, 0.25, 0.5, 1)
         ) +
-        scale_x_continuous(breaks = seq(-0.125, 0.1, by = 0.025), limits = c(-0.125, 0.025))
-
+          scale_x_continuous(breaks = seq(-0.125, 0.1, by = 0.025), limits = c(-0.125, 0.025))
+      }
+      
       p
     },
     res = 100
   )
 
-  output$table <- renderTable({
-    portfolio_returns() %>%
-      slice_head(n = 10)
+  # output$table <- renderTable({
+  #   portfolio_returns() %>%
+  #     slice_head(n = 10)
+  # })
+  
+  output$var_empirical_output <- renderText({
+    empirical_var_alpha <- quantile(portfolio_returns()$return, probs = input$var_alpha, names = FALSE, type = 3)
+    paste0(round(empirical_var_alpha*100, digits = 2), "%")
+  })
+  
+  output$var_normal_output <- renderText({
+    normal_var_alpha <- qnorm(input$var_alpha, mean = portfolio_mean(), sd = sqrt(portfolio_var()))
+    paste0(round(normal_var_alpha*100, digits = 2), "%")
+  })
+  
+  output$es_empirical_output <- renderText({
+    empirical_es_alpha <- portfolio_returns() %>%
+      filter(return < quantile(return, probs = input$var_alpha)) %>%
+      pull(return) %>%
+      mean()
+    paste0(round(empirical_es_alpha*100, digits = 2), "%")
+  })
+  
+  output$es_normal_output <- renderText({
+    normal_es_alpha <- portfolio_mean() - sqrt(portfolio_var()) * dnorm(qnorm(input$var_alpha, 0, 1)) / input$var_alpha
+    paste0(round(normal_es_alpha*100, digits = 2), "%")
   })
 
-  observeEvent(input$reset, {
+  observeEvent(input$reset_portfolio, {
     updateSelectInput(inputId = "select_portfolio", selected = list("AAPL", "XOM"))
+  })
+  
+  observeEvent(input$reset_plot, {
+    updateNumericInput(inputId = "var_alpha", value = 0.01)
+    updateNumericInput(inputId = "pseudo_log_sigma", value = 0.001)
   })
 }
 
