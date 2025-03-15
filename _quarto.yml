@@ -17,4 +17,17 @@ format:
     reference-location: margin
     footnotes-hover: true
     highlight-style: monokai
-    embed-resources: true
+    #embed-resources: true
+
+website:
+  title: "Portfolio Risk"
+  #repo-url: "https://github.com/andrewheiss/ath-quarto"
+  sidebar:
+    style: "docked"
+    #collapse-level: 1
+    search: true
+    contents:
+      - href: risk.qmd
+        text: "Risk"
+      - href: risk_app.qmd
+        text: "Interaktiv App"
