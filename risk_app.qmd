@@ -1,5 +1,5 @@
 ---
-title: Interaktive App
+title: Interactive App
 filters:
   - shinylive
 ---

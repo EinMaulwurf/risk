@@ -32,4 +32,4 @@ website:
       - href: case_study.qmd
         text: "Case Study"
       - href: risk_app.qmd
-        text: "Interaktiv App"
+        text: "Interactive App"
