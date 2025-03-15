@@ -44,7 +44,7 @@ ui <- fluidPage(
         tabPanel("Portfolio",
           width = "400px",
           br(),
-          p("Portfolio zusammenstellen"),
+          p("Choose portfolio"),
           dateRangeInput(
             inputId = "date_range",
             label = "Date Range",
