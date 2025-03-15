@@ -1,12 +1,10 @@
 library(shiny)
 options(shiny.mathjax.url = "https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js")
-#library(tidyverse)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
-#library(arrow)
 
-#ggplot2::theme_set(theme_bw())
+ggplot2::theme_set(theme_bw())
 
 stocks <- list(
   "Apple" = "AAPL",
@@ -51,7 +49,7 @@ ui <- fluidPage(
             label = "Date Range",
             startview = "year",
             start = "2020-01-01",
-            min = "2000-01-01",
+            min = "2010-01-01",
             max = format(Sys.Date() + 1, "%Y-%m-%d")
           ),
           selectInput(
@@ -64,9 +62,24 @@ ui <- fluidPage(
           actionButton("reset", "Reset")
         ),
         tabPanel(
-          "Erweitert",
+          "More",
           br(),
-          p("Lorem Ipsum")
+          p("Additional settings for the VAR plot"),
+          numericInput(
+            "var_alpha",
+            "VAR α",
+            value = 0.01,
+            min = 0.001,
+            max = 0.1
+          ),
+          checkboxInput("adjusted_scaling_checkbox", "Adjusted Scaling", TRUE),
+          numericInput(
+            "pseudo_log_sigma",
+            "Pseudo-Log σ",
+            value = 0.001,
+            min = 0.0001,
+            max = 0.1
+          )
         )
       )
     ),
@@ -74,7 +87,10 @@ ui <- fluidPage(
       align = "center",
       tabsetPanel(
         type = "tabs",
-        tabPanel("Plot", plotOutput(outputId = "returnsPlot")),
+        tabPanel("Portfolio Value", plotOutput(outputId = "returnsPlot")),
+        tabPanel("Daily Returns", plotOutput(outputId = "dailyReturnsPlot")),
+        tabPanel("Distribution", plotOutput(outputId = "returnsDistribution")),
+        tabPanel("VAR Plot", plotOutput(outputId = "varPlot")),
         tabPanel("Table", tableOutput("table"))
       )
     )
@@ -83,13 +99,12 @@ ui <- fluidPage(
 
 # Define server logic ---------------------------------------------------------
 server <- function(input, output) {
-  
   # stock_returns_complete <- read.csv("./stock_returns.csv") %>%
   #   mutate(date = as.Date(date))
-  
+
   stock_returns_complete <- read.csv(url("https://raw.githubusercontent.com/EinMaulwurf/risk/refs/heads/main/stock_returns.csv")) %>%
     mutate(date = as.Date(date))
-  
+
   # Reactive: Filter stock returns to portfolio and date range
   stock_returns <- reactive({
     req(input$select_portfolio, input$date_range)
@@ -116,14 +131,96 @@ server <- function(input, output) {
       summarise(return = weighted.mean(return, weight))
   })
 
+  portfolio_mean <- reactive({
+    mean(portfolio_returns()$return)
+  })
+
+  portfolio_var <- reactive({
+    var(portfolio_returns()$return)
+  })
+
   # Outputs that depend on portfolio_returns
   output$returnsPlot <- renderPlot(
     {
       portfolio_returns() %>%
         mutate(cum_return = cumprod(1 + return)) %>%
         ggplot(aes(x = date, y = cum_return)) +
-        geom_line() +
-        labs(title = "Portfolio Cumulative Returns")
+        geom_line()
+    },
+    res = 100
+  )
+
+  output$dailyReturnsPlot <- renderPlot(
+    {
+      portfolio_returns() %>%
+        ggplot(aes(x = date, y = return)) +
+        geom_col()
+    },
+    res = 100
+  )
+
+  output$returnsDistribution <- renderPlot(
+    {
+      portfolio_returns() %>%
+        ggplot() +
+        geom_density(aes(x = return)) +
+        stat_function(
+          fun = dnorm, args = list(mean = portfolio_mean(), sd = sqrt(portfolio_var())),
+          linetype = "dashed"
+        )
+    },
+    res = 100
+  )
+
+  output$varPlot <- renderPlot(
+    {
+      empirical_var_alpha <- quantile(portfolio_returns()$return, probs = input$var_alpha, names = FALSE, type = 3)
+      normal_var_alpha <- qnorm(input$var_alpha, mean = portfolio_mean(), sd = sqrt(portfolio_var()))
+
+      p <- portfolio_returns() %>%
+        ggplot(aes(x = return)) +
+        stat_ecdf() +
+        stat_function(
+          fun = pnorm, args = list(mean = portfolio_mean(), sd = sqrt(portfolio_var())),
+          linetype = "dashed"
+        ) +
+        # Add lines showing empirical VaR values
+        annotate(
+          geom = "segment",
+          x = empirical_var_alpha, xend = empirical_var_alpha, y = 0, yend = input$var_alpha,
+          color = "magenta"
+        ) +
+        annotate(
+          geom = "segment",
+          x = empirical_var_alpha, xend = min(portfolio_returns()$return), y = input$var_alpha, yend = input$var_alpha,
+          color = "magenta"
+        ) +
+        # Add lines showing normal distribution VaR
+        annotate(
+          geom = "segment",
+          x = normal_var_alpha, xend = normal_var_alpha, y = 0, yend = input$var_alpha,
+          color = "magenta", linetype = "dashed"
+        ) +
+        annotate(
+          geom = "segment",
+          x = normal_var_alpha, xend = min(portfolio_returns()$return), y = input$var_alpha, yend = input$var_alpha,
+          color = "magenta", linetype = "dashed"
+        ) +
+        labs(y = "quantile")
+
+      # Scale options and transformation
+      if (input$adjusted_scaling_checkbox) {
+        p <- p + scale_y_continuous(
+          transform = scales::pseudo_log_trans(sigma = input$pseudo_log_sigma),
+          breaks = c(0, 0.001, 0.01, 0.05, 0.25, 0.5, 1)
+        ) +
+          scale_x_continuous(
+            breaks = seq(-0.125, 0.1, by = 0.025), 
+            limits = c(min(portfolio_returns()$return), 0)
+          )
+      }
+
+      p
     },
     res = 100
   )
