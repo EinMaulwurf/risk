@@ -27,9 +27,9 @@ website:
     #collapse-level: 1
     search: true
     contents:
-      - href: methodology.qmd
+      - href: src/methodology.qmd
         text: "Methodology"
-      - href: case_study.qmd
+      - href: src/case_study.qmd
         text: "Case Study"
-      - href: risk_app.qmd
+      - href: src/risk_app.qmd
         text: "Interactive App"
