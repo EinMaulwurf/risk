@@ -57,7 +57,7 @@ stock_returns <- stock_data %>%
   slice_tail(n = -1) %>%
   ungroup()
 
-write_csv(stock_returns, "stock_returns.csv")
+write_csv(stock_returns, "assets/stock_returns.csv")
 ```
 
 And here is the app.

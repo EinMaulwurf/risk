@@ -139,7 +139,7 @@ server <- function(input, output) {
   # stock_returns_complete <- read.csv("./stock_returns.csv") %>%
   #   mutate(date = as.Date(date))
 
-  stock_returns_complete <- read.csv(url("https://raw.githubusercontent.com/EinMaulwurf/risk/refs/heads/main/stock_returns.csv")) %>%
+  stock_returns_complete <- read.csv(url("https://raw.githubusercontent.com/EinMaulwurf/risk/refs/heads/main/assets/stock_returns.csv")) %>%
     mutate(date = as.Date(date))
 
   # Reactive: Filter stock returns to portfolio and date range
