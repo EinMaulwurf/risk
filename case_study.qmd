@@ -1,0 +1,260 @@
+---
+title: Case Study
+---
+
+# Overview
+
+This case study demonstrates how to calculate Value-at-Risk (VaR) and Expected Shortfall (ES) for a portfolio of stocks. These metrics are widely used in risk management to quantify potential losses. We'll use R and the `tidyverse` and `tidyquant` packages to perform the analysis.
+
+For an in-depth explanation of VaR and ES, check out the [methodology](methodology.qmd) section.
+
+# Setup
+
+We begin by loading the necessary R packages. `tidyverse` provides tools for data manipulation and visualization, while `tidyquant` simplifies fetching financial data.
+
+```{r}
+#| warning: false
+#| message: false
+
+library(tidyverse)
+library(patchwork)
+library(tidyquant)
+
+ggplot2::theme_set(theme_bw()) # Set a clean theme for plots
+```
+
+Now, we define the portfolio. We'll use five stocks from different sectors:
+
+- Apple (AAPL) - Information Technology
+- Exxon Mobil (XOM) - Energy
+- UnitedHealthCare (UNH) - Health Care
+- JP Morgan (JPM) - Banks
+- Costco (COST) - Consumer Staples
+
+We'll give each stock an equal weight (20%) in the portfolio. This could easily be adjusted.
+
+```{r}
+stocks <- c("AAPL", "XOM", "UNH", "JPM", "COST")
+weights_df <- tibble(symbol = stocks, weight = rep(1 / length(stocks), length(stocks)))
+start_date <- today() - (6 * 365)  # Go back 6 years
+end_date <- today()
+```
+
+We use `tq_get()` from `tidyquant` to download the daily adjusted closing prices for these stocks over the past six years. `tq_get()` is a wrapper around the `quantmod::getSymbols()` function, but it returns a `tibble` (a modern data frame), which is easier to work with in the `tidyverse`.
+
+```{r}
+stock_data <- tq_get(stocks, from = start_date, to = end_date)
+```
+
+Next, we calculate the daily *returns* for each stock. A return is the percentage change in price from one day to the next. We also calculate the overall portfolio return, which is a weighted average of the individual stock returns.
+
+```{r}
+stock_returns <- stock_data %>%
+  select(symbol, date, adjusted) %>%
+  group_by(symbol) %>%  # Calculate returns for each stock separately
+  mutate(return = (adjusted - lag(adjusted)) / lag(adjusted)) %>% # Daily return
+  slice_tail(n = -1) %>% # Remove the first row (no return for the first day)
+  ungroup()
+
+portfolio_returns <- stock_returns %>%
+  left_join(weights_df, by = join_by(symbol)) %>% # Combine with weights
+  group_by(date) %>% # Calculate portfolio return for each day
+  summarise(return = weighted.mean(return, weight)) # Weighted average return
+```
+
+# Exploratory Data Analysis
+
+Let's examine the data visually and look at some summary statistics.
+
+First, we plot the distribution of returns for both individual stocks and the overall portfolio. The distributions appear roughly symmetrical and "bell-shaped," resembling a normal distribution. However, we notice some outliers, particularly on the negative side (losses), with some days experiencing losses exceeding -10%.
+
+```{r}
+p1 <- portfolio_returns %>%
+  mutate(cum_return = cumprod(1 + return)) %>%
+  ggplot(aes(x = date, y = cum_return)) +
+  geom_line() +
+  labs(title = "Cumulative Portfolio Return")
+
+p2 <- stock_returns %>%
+  ggplot(aes(x = return, fill = symbol)) +
+  geom_histogram(bins = 100) +
+  coord_cartesian(xlim = c(-0.15, 0.15)) +
+  theme(
+    legend.position = "right",
+    legend.position.inside = c(0.9, 0.5)
+  ) +
+    labs(title = "Distribution of Individual Stock Returns")
+
+p3 <- portfolio_returns %>%
+  ggplot(aes(x = return)) +
+  geom_histogram(bins = 100) +
+  coord_cartesian(xlim = c(-0.15, 0.15)) +
+    labs(title = "Distribution of Portfolio Returns")
+
+p1 + (p2 / p3) # Combine plots using patchwork
+```
+
+We identify the ten worst days for the portfolio. Many of these occurred around March 2020, coinciding with the start of the COVID-19 pandemic. The worst single day saw a -12% return.
+
+```{r}
+# Worst days in the portfolio
+portfolio_returns %>%
+  arrange(return) %>%
+  head(10)
+```
+
+Finally, we plot the daily returns over time. This visualization helps us understand the distribution of volatility. We observe significant volatility spikes during the COVID-19 crash in early 2020 and other market events in 2022.
+
+```{r}
+# Volatility over time
+portfolio_returns %>%
+  ggplot(aes(x = date, y = return)) +
+  geom_col() +
+  labs(title = "Daily Portfolio Returns Over Time")
+```
+
+# Fitting a Normal Distribution
+
+To apply the parametric approach for VaR and ES, we'll fit a normal distribution to the portfolio returns. We need to calculate the mean ($\mu$) and variance ($\sigma^2$) of the portfolio returns. There are two ways to do this:
+
+1. **Using the covariance matrix:** Calculate the covariance matrix of the individual stock returns and use the portfolio weights to derive the portfolio variance: $\sigma^2 = \mathbf{w}' \mathbf{\Sigma} \mathbf{w}$.
+2. **Using portfolio returns directly:** Calculate the mean and variance directly from the `portfolio_returns` data.
+
+We'll use the second, more straightforward approach here.
+
+```{r}
+portfolio_mean <- mean(portfolio_returns$return)
+portfolio_var <- var(portfolio_returns$return)
+```
+
+Now, we can overlay the fitted normal distribution (dashed line) on a density plot of the actual portfolio returns (solid line). While the normal distribution provides a reasonable approximation, it's clear that the actual returns are more concentrated around the mean and have fatter tails (more extreme values) than the normal distribution predicts.
+
+```{r}
+ggplot() +
+  geom_density(data = portfolio_returns, aes(x = return)) +
+  stat_function(
+    fun = dnorm, args = list(mean = portfolio_mean, sd = sqrt(portfolio_var)),
+    linetype = "dashed"
+  ) +
+    labs(title = "Portfolio Returns vs. Fitted Normal Distribution")
+```
+
+# Value at Risk (VaR) Calculation
+
+The differences between the empirical distribution and the normal distribution become even clearer when we examine the cumulative distribution function (CDF). The CDF allows us to directly read off the quantiles, which are crucial for VaR calculations. We'll use a pseudo-log scale on the y-axis to focus on the lower tail (where the losses are).
+
+We'll compare the empirical VaR (from the actual data) and the theoretical VaR (from the fitted normal distribution) at two confidence levels:
+
+- **95% VaR (5% Quantile):** The blue lines show that the empirical and theoretical VaR values are relatively close. The theoretical VaR is slightly more conservative (predicts a larger loss).
+- **99.9% VaR (0.1% Quantile):** The magenta lines reveal a significant difference. The theoretical VaR substantially *underestimates* the potential loss compared to the empirical VaR.
+
+```{r}
+#| warning: false
+empirical_var_001 <- quantile(portfolio_returns$return, 0.001, type = 2)
+normal_var_001 <- qnorm(0.001, mean = portfolio_mean, sd = sqrt(portfolio_var))
+empirical_var_05 <- quantile(portfolio_returns$return, 0.05)
+normal_var_05 <- qnorm(0.05, mean = portfolio_mean, sd = sqrt(portfolio_var))
+
+portfolio_returns %>%
+  ggplot(aes(x = return)) +
+  stat_ecdf() + # Empirical CDF
+  stat_function(
+    fun = pnorm, args = list(mean = portfolio_mean, sd = sqrt(portfolio_var)),
+    linetype = "dashed"
+  ) + # Normal CDF
+  # Add lines showing empirical VaR values
+  geom_segment(aes(x = empirical_var_001, xend = empirical_var_001, y = 0, yend = 0.001), color = "magenta") +
+  geom_segment(aes(x = empirical_var_001, xend = min(return), y = 0.001, yend = 0.001), color = "magenta") +
+  geom_segment(aes(x = empirical_var_05, xend = empirical_var_05, y = 0, yend = 0.05), color = "blue") +
+  geom_segment(aes(x = empirical_var_05, xend = min(return), y = 0.05, yend = 0.05), color = "blue") +
+  # Add lines showing normal distribution VaR
+  geom_segment(aes(x = normal_var_001, xend = normal_var_001, y = 0, yend = 0.001), color = "magenta", linetype = "dashed") +
+  geom_segment(aes(x = normal_var_001, xend = min(return), y = 0.001, yend = 0.001), color = "magenta", linetype = "dashed") +
+  geom_segment(aes(x = normal_var_05, xend = normal_var_05, y = 0, yend = 0.05), color = "blue", linetype = "dashed") +
+  geom_segment(aes(x = normal_var_05, xend = min(return), y = 0.05, yend = 0.05), color = "blue", linetype = "dashed") +
+  # Scale options and transformation
+  scale_y_continuous(
+    transform = scales::pseudo_log_trans(sigma = .001),
+    breaks = c(0, 0.001, 0.01, 0.05, 0.25, 0.5, 1)
+  ) +
+  scale_x_continuous(breaks = seq(-0.125, 0.1, by = 0.025), limits = c(-0.125, 0.025)) +
+    labs(title = "CDF of Portfolio Returns with VaR Levels")
+```
+
+Let's calculate the VaR values numerically using both methods:
+
+- **Empirical VaR:** We use the `quantile()` function to find the specified quantiles of the `portfolio_returns$return` data.
+- **Theoretical VaR:** We use the `qnorm()` function, which is the quantile function for the normal distribution, with the calculated `portfolio_mean` and `portfolio_var`.
+We use `type = 2` for the `quantile` function to be consistent with the plot above.
+
+```{r}
+# 95% VAR
+qnorm(0.05, mean = portfolio_mean, sd = sqrt(portfolio_var))
+quantile(portfolio_returns$return, probs = 0.05, type = 2) %>% unname()
+
+# 99% VAR
+qnorm(0.01, mean = portfolio_mean, sd = sqrt(portfolio_var))
+quantile(portfolio_returns$return, probs = 0.01, type = 2) %>% unname()
+
+# 99.9% VAR
+qnorm(0.001, mean = portfolio_mean, sd = sqrt(portfolio_var))
+quantile(portfolio_returns$return, probs = 0.001, type = 2) %>% unname()
+```
+
+The results confirm our visual observation: the normal distribution underestimates the tail risk, especially at the 99.9% confidence level. The worst observed daily loss (-12%) would be considered virtually impossible under the normal distribution assumption.
+
+```{r}
+# Probability of observing the worst day's return under the normal assumption
+portfolio_returns %>%
+  pull(return) %>%
+  min() %>%
+  pnorm(mean = portfolio_mean, sd = sqrt(portfolio_var))
+```
+
+# Expected Shortfall (ES) Calculation
+
+Expected Shortfall (ES) provides a more comprehensive view of tail risk. It tells us the average loss we expect when losses exceed the VaR.
+
+We'll calculate ES using two approaches:
+
+- **Historical ES:** We average all the historical returns that are *below* the corresponding empirical VaR.
+- **Parametric ES (Normal Distribution):** We use the closed-form solution for ES under the normal distribution:
+
+$$
+\text{ES}_\alpha = \mu - \sigma \cdot \frac{\phi(z_{\alpha})}{\alpha}
+$$
+
+Where:
+
+- $\mu$ is the portfolio mean.
+- $\sigma$ is the portfolio standard deviation.
+- $\phi$ is the standard normal PDF (probability density function).
+- $z_{\alpha}$ is the $\alpha$ quantile of the standard normal distribution (`qnorm(alpha)`).
+
+```{r}
+# 95% ES
+portfolio_returns %>%
+  filter(return < quantile(return, probs = 0.05, type = 2)) %>%
+  pull(return) %>%
+  mean()
+
+portfolio_mean - sqrt(portfolio_var) * dnorm(qnorm(0.05, 0, 1)) / 0.05
+
+# 99% ES
+portfolio_returns %>%
+  filter(return < quantile(return, probs = 0.01, type = 2)) %>%
+  pull(return) %>%
+  mean()
+
+portfolio_mean - sqrt(portfolio_var) * dnorm(qnorm(0.01, 0, 1)) / 0.01
+
+# 99.9% ES
+portfolio_returns %>%
+  filter(return < quantile(return, probs = 0.001, type = 2)) %>%
+  pull(return) %>%
+  mean()
+
+portfolio_mean - sqrt(portfolio_var) * dnorm(qnorm(0.001, 0, 1)) / 0.001
+```
+
+Unlike VaR, the historical ES is *always* larger than the parametric ES for this portfolio. This is because the historical ES incorporates the actual extreme losses observed in the data, while the normal distribution underestimates these extreme events. This highlights the importance of considering non-normal distributions or other methods (like historical simulation or Monte Carlo) when assessing tail risk.

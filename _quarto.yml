@@ -27,7 +27,9 @@ website:
     #collapse-level: 1
     search: true
     contents:
-      - href: risk.qmd
-        text: "Risk"
+      - href: methodology.qmd
+        text: "Methodology"
+      - href: case_study.qmd
+        text: "Case Study"
       - href: risk_app.qmd
         text: "Interaktiv App"
