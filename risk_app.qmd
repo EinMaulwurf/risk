@@ -1,0 +1,70 @@
+---
+title: Interaktive App
+filters:
+  - shinylive
+---
+
+Below is an interactive Shinylive-R app that allows you to select a portfolio of different S&P 500 stocks over a custom time horizon. You can then look at the portfolio returns as well as simple Value-at-Risk and Expected-Shortfall metrics for this portfolio.
+
+Because Shinylive does not allow API requests via `tidyquant::tq_get()`, I had to preprocess the data and write it out to a csv file. And because I could not get it to work with the local csv file, I then comitted that csv file to a public github repository. The Shinylive app then fetches the data from that repository. Everything else - the calculations and plotting - happens locally in your browser.
+
+To have a look at the code for downloading and writing the data to csv, you can expand the following code block.
+
+```{r}
+#| eval: false
+#| code-fold: true
+
+library(tidyverse)
+
+stocks <- list(
+  "Apple" = "AAPL",
+  "Exxon Mobil" = "XOM",
+  "UnitedHealthCare" = "UNH",
+  "JP Morgan" = "JPM",
+  "Costco" = "COST",
+  "Microsoft" = "MSFT",
+  "Amazon" = "AMZN",
+  "Berkshire Hathaway" = "BRK-B",
+  "Alphabet (Class A)" = "GOOGL",
+  "NVIDIA" = "NVDA",
+  "Tesla" = "TSLA",
+  "Meta Platforms" = "META",
+  "Eli Lilly" = "LLY",
+  "Visa" = "V",
+  "Procter & Gamble" = "PG",
+  "Johnson & Johnson" = "JNJ",
+  "Mastercard" = "MA",
+  "Home Depot" = "HD",
+  "Walmart" = "WMT",
+  "Bank of America" = "BAC",
+  "Chevron" = "CVX",
+  "Coca-Cola" = "KO",
+  "PepsiCo" = "PEP"
+)
+
+stocks_vec <- list_simplify(stocks) %>% unname()
+
+stock_data <- tidyquant::tq_get(
+      stocks_vec,
+      from = "2010-01-01",
+      to = "2024-12-31"
+    )
+
+stock_returns <- stock_data %>%
+  select(symbol, date, adjusted) %>%
+  group_by(symbol) %>%
+  mutate(return = (adjusted - lag(adjusted)) / lag(adjusted)) %>%
+  slice_tail(n = -1) %>%
+  ungroup()
+
+write_csv(stock_returns, "stock_returns.csv")
+```
+
+And here is the app.
+
+```{shinylive-r}
+#| standalone: true
+#| viewerHeight: 600
+
+{{< include "./shiny_app.R" >}}
+```
