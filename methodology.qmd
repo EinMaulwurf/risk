@@ -1,0 +1,162 @@
+---
+title: Risk Calculation Methodology
+---
+
+This document outlines different approaches to calculating Value-at-Risk (VaR) and Expected Shortfall (ES), which are key metrics in market risk management. They help us understand and quantify the potential losses on an investment or portfolio.
+
+# Value-at-Risk and Expected Shortfall Approaches
+
+There are three primary methods for calculating these market risk metrics:
+
+## Historical Simulation
+
+Imagine you have a record of the daily returns (percentage gains or losses) of an investment over the past few years. Historical simulation uses this past data directly to estimate future risk. It's like saying, "If the future looks like the past, what's the worst that could reasonably happen?"
+
+**Key Idea:** We use the actual historical returns, without assuming any specific mathematical formula for how those returns are distributed. This is called a "non-parametric" approach.
+
+**Value at Risk (VaR):**
+
+The VaR at a confidence level $\alpha$ (e.g., 95% or 99%) tells you the maximum loss you'd expect to see *with that level of confidence*. More precisely, it's the loss that you would expect to exceed only $(1-\alpha)$% of the time.
+
+To calculate it, we find the $\alpha$-quantile of the historical returns. Think of sorting all the daily returns from worst to best. The VaR is the return at the specific point where $(1-\alpha)$% of the returns are worse.
+
+$$
+\text{VaR}_\alpha = Q_\alpha(\{r_t\}_{t=1}^T)
+$$
+
+Where:
+
+- $\{r_t\}_{t=1}^T$ represents the set of historical returns, with $r_t$ being the return on day $t$, and $T$ being the total number of days.
+- $Q_\alpha$ is the quantile function. It finds the value at the $\alpha$ percentile of the sorted historical returns.
+
+**Expected Shortfall (ES):**
+
+VaR tells you a "worst-case" loss, but it doesn't tell you *how bad* things could get if you *do* exceed the VaR. Expected Shortfall (ES) addresses this. ES is the average loss *given* that the loss is worse than the VaR. It is also known as the *Conditional Value at Risk*.
+
+$$
+\text{ES}_\alpha = \frac{1}{\lfloor T(1-\alpha) \rfloor} \sum_{r_t \leq \text{VaR}_\alpha} r_t
+$$
+
+Where:
+
+- $\lfloor T(1-\alpha) \rfloor$ calculates the number of observations that fall below the VaR.
+- The summation adds up all the historical returns ($r_t$) that are less than or equal to the calculated $\text{VaR}_\alpha$.
+- We divide by the number of observations below the VaR to get the average loss in this "tail" of the distribution.
+
+**Intuition:** If you're looking at a 95% VaR, ES tells you the average loss you'd expect on the worst 5% of days.
+
+**Examples:** The portfolio analysis case study and the interactive application use this method, making it easy to see how it works in practice.
+
+## Parametric Approach
+
+Instead of relying solely on past data, the parametric approach assumes that returns follow a specific probability distribution, often the normal distribution (the bell curve). This is like saying, "Let's assume returns behave in a mathematically predictable way."
+
+**Key Idea:** We use a mathematical formula (a probability distribution) to model the returns.
+
+**Value at Risk (VaR):**
+
+We need to find the point on the distribution where the area under the curve to the left of that point is equal to $1 - \alpha$. This point represents the VaR.
+
+$$
+\int_{-\infty}^{\text{VaR}_\alpha} f_\theta(x)\ dx = 1- \alpha
+$$
+
+Where:
+
+- $f_\theta(x)$ is the probability density function (PDF) of the assumed distribution (e.g., the normal distribution). The PDF describes the relative likelihood of observing a particular return value.
+- The integral calculates the area under the PDF curve from negative infinity up to the $\text{VaR}_\alpha$ value.
+- $\theta$ represents the parameters that define the distribution (e.g., mean and standard deviation for a normal distribution).
+
+This can be simplified using the inverse of the cumulative distribution function (CDF):
+
+$$
+\text{VaR}_\alpha = F_\theta^{-1}(1-\alpha)
+$$
+
+Where:
+
+- $F_\theta(x)$ is the cumulative distribution function (CDF), which gives the probability that a random variable is less than or equal to $x$.
+- $F_\theta^{-1}$ is the inverse of the CDF, also known as the quantile function.
+
+**Expected Shortfall (ES):**
+
+Similar to the historical simulation, ES is the average loss given that the loss exceeds the VaR. However, we now calculate this using the assumed probability distribution.
+
+$$
+\text{ES}_\alpha = \frac{1}{1-\alpha} \int_{\text{VaR}_\alpha}^\infty x f_\theta(x)\ dx
+$$
+
+Where:
+
+- The integral now calculates the average value of $x$ (the return) in the tail of the distribution, beyond the $\text{VaR}_\alpha$.
+- We scale by $\frac{1}{1-\alpha}$
+
+**Special Case: Normal Distribution**
+
+If we assume returns are normally distributed (a common, but not always accurate, assumption), the ES calculation simplifies:
+
+$$
+\text{ES}_\alpha = \mu - \sigma \frac{\phi(\Phi^{-1}(\alpha))}{\alpha}
+$$
+
+Where:
+
+- $\mu$ is the mean (average) return.
+- $\sigma$ is the standard deviation of returns (a measure of volatility).
+- $\phi$ is the standard normal probability density function (PDF).
+- $\Phi^{-1}$ is the standard normal quantile function (the inverse of the standard normal CDF).
+
+**Intuition:** The parametric approach provides a smooth, mathematically defined picture of risk. It's convenient, but its accuracy depends entirely on how well the chosen distribution matches reality.
+
+## Monte Carlo Simulation
+
+Monte Carlo simulation is like creating a "virtual future" many times over. We use a computer to generate thousands of possible scenarios for future returns, based on a chosen statistical model.
+
+**Key Idea:** Instead of relying on historical data or a single distribution, we simulate many possible future paths.
+
+**Workflow:**
+
+1. **Choose a Model:** Select a statistical model that describes how returns change over time (e.g., a normal distribution, or more complex models).
+2. **Estimate Parameters:** Estimate the parameters of the chosen model (e.g., mean and standard deviation) using historical data.
+3. **Simulate:** Generate a large number ($N$) of random return paths based on the model and parameters. Each path represents a possible future sequence of returns.
+4. **Calculate Risk Metrics:** Calculate VaR and ES from the simulated returns, just like we did with historical data in the historical simulation method.
+
+**Value at Risk (VaR):**
+
+$$
+\text{VaR}_\alpha = Q_\alpha(\{\tilde{r}_i\}_{i=1}^N)
+$$
+
+Where $\{\tilde{r}_i\}_{i=1}^N$ is the set of simulated returns.
+
+**Expected Shortfall (ES):**
+
+$$
+\text{ES}_\alpha = \mathbb{E}[\tilde{r} | \tilde{r} \leq \text{VaR}_\alpha]
+$$
+
+This is the average of the simulated returns that are less than or equal to the simulated VaR.
+
+**Intuition:** Monte Carlo simulation is like running a large number of "what-if" scenarios. It's flexible because you can use different models to capture various market behaviors. However, it's computationally intensive, and the results are only as good as the model you choose.
+
+**Planned Enhancements:** Future improvements will include using more sophisticated models like GARCH (to capture changing volatility), copulas (to model how different assets move together), and jump diffusion processes (to account for sudden, large market movements).
+
+---
+
+# Method Comparison
+
+The following table summarizes the key characteristics of each method:
+
+| Aspect              | Historical Simulation | Parametric Approach | Monte Carlo Simulation |
+| :------------------ | :------------------- | :------------------ | :--------------------- |
+| Tail Risk Capture   | Based on actual observations | Dependent on the chosen model | Dependent on the chosen model |
+| Computational Load  | Low                  | Medium               | High                   |
+| Regulatory Acceptance | Basel approved       | Basel approved       | Requires validation    |
+| Forward-Looking     | No                   | Yes                  | Yes                    |
+
+**Explanation of Table Entries:**
+
+- **Tail Risk Capture:** How well does the method capture the risk of extreme losses (the "tails" of the distribution)?
+- **Computational Load:** How much computing power is required?
+- **Regulatory Acceptance:** Is the method generally accepted by financial regulators (like the Basel Committee)?
+- **Forward-Looking:** Does the method incorporate expectations about the future, or is it purely based on the past?
