@@ -2,3 +2,6 @@
 .Rproj.user
 _site
 deploy.sh
+_extensions/
+.Rhistory
+digest.txt
