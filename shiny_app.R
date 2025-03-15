@@ -1,6 +1,12 @@
 library(shiny)
 options(shiny.mathjax.url = "https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js")
-library(tidyverse)
+#library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+#library(arrow)
+
+#ggplot2::theme_set(theme_bw())
 
 stocks <- list(
   "Apple" = "AAPL",
@@ -10,7 +16,7 @@ stocks <- list(
   "Costco" = "COST",
   "Microsoft" = "MSFT",
   "Amazon" = "AMZN",
-  "Berkshire Hathaway" = "BRK.B",
+  "Berkshire Hathaway" = "BRK-B",
   "Alphabet (Class A)" = "GOOGL",
   "NVIDIA" = "NVDA",
   "Tesla" = "TSLA",
@@ -77,25 +83,19 @@ ui <- fluidPage(
 
 # Define server logic ---------------------------------------------------------
 server <- function(input, output) {
-  # Reactive: Get stock data (updates when date/selection changes)
-  stock_data <- reactive({
-    req(input$select_portfolio, input$date_range)
-    tidyquant::tq_get(
-      input$select_portfolio,
-      from = input$date_range[[1]],
-      to = input$date_range[[2]]
-    )
-  })
-
-  # Reactive: Calculate individual stock returns
+  
+  # stock_returns_complete <- read.csv("./stock_returns.csv") %>%
+  #   mutate(date = as.Date(date))
+  
+  stock_returns_complete <- read.csv(url("https://raw.githubusercontent.com/EinMaulwurf/risk/refs/heads/main/stock_returns.csv")) %>%
+    mutate(date = as.Date(date))
+  
+  # Reactive: Filter stock returns to portfolio and date range
   stock_returns <- reactive({
-    req(stock_data())
-    stock_data() %>%
-      select(symbol, date, adjusted) %>%
-      group_by(symbol) %>%
-      mutate(return = (adjusted - lag(adjusted)) / lag(adjusted)) %>%
-      slice_tail(n = -1) %>%
-      ungroup()
+    req(input$select_portfolio, input$date_range)
+    stock_returns_complete %>%
+      filter(symbol %in% input$select_portfolio) %>%
+      filter(date >= input$date_range[[1]], date <= input$date_range[[2]])
   })
 
   # Reactive: Create weights dataframe (updates when selection changes)
@@ -129,7 +129,8 @@ server <- function(input, output) {
   )
 
   output$table <- renderTable({
-    portfolio_returns()
+    portfolio_returns() %>%
+      slice_head(n = 10)
   })
 
   observeEvent(input$reset, {
