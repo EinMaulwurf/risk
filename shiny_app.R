@@ -186,39 +186,25 @@ server <- function(input, output) {
         ) +
         # Add lines showing empirical VaR values
         annotate(
-          geom = "segment",
-          x = empirical_var_alpha, xend = empirical_var_alpha, y = 0, yend = input$var_alpha,
-          color = "magenta"
-        ) +
-        annotate(
-          geom = "segment",
-          x = empirical_var_alpha, xend = min(portfolio_returns()$return), y = input$var_alpha, yend = input$var_alpha,
-          color = "magenta"
-        ) +
+          aes(x = empirical_var_alpha, xend = empirical_var_alpha, y = 0, yend = input$var_alpha), 
+          color = "magenta") +
+        geom_segment(
+          aes(x = empirical_var_alpha, xend = min(portfolio_returns()$return), y = input$var_alpha, yend = input$var_alpha), 
+          color = "magenta") +
         # Add lines showing normal distribution VaR
-        annotate(
-          geom = "segment",
-          x = normal_var_alpha, xend = normal_var_alpha, y = 0, yend = input$var_alpha,
-          color = "magenta", linetype = "dashed"
-        ) +
-        annotate(
-          geom = "segment",
-          x = normal_var_alpha, xend = min(portfolio_returns()$return), y = input$var_alpha, yend = input$var_alpha,
-          color = "magenta", linetype = "dashed"
-        ) +
-        labs(y = "quantile")
-
-      # Scale options and transformation
-      if (input$adjusted_scaling_checkbox) {
-        p <- p + scale_y_continuous(
-          transform = scales::pseudo_log_trans(sigma = input$pseudo_log_sigma),
+        geom_segment(
+          aes(x = normal_var_alpha, xend = normal_var_alpha, y = 0, yend = input$var_alpha), 
+          color = "magenta", linetype = "dashed") +
+        geom_segment(
+          aes(x = normal_var_alpha, xend = min(portfolio_returns()$return), y = input$var_alpha, yend = input$var_alpha), 
+          color = "magenta", linetype = "dashed") +
+        # Scale options and transformation
+        scale_y_continuous(
+          limits = c(0, 0.2),
+          transform = scales::pseudo_log_trans(sigma = .0001),
           breaks = c(0, 0.001, 0.01, 0.05, 0.25, 0.5, 1)
         ) +
-          scale_x_continuous(
-            breaks = seq(-0.125, 0.1, by = 0.025), 
-            limits = c(min(portfolio_returns()$return), 0)
-          )
-      }
+        scale_x_continuous(breaks = seq(-0.125, 0.1, by = 0.025), limits = c(-0.125, 0.025))
 
       p
     },
