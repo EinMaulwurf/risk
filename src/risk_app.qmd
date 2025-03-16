@@ -4,7 +4,7 @@ filters:
   - shinylive
 ---
 
-Below is an interactive Shinylive-R app that allows you to select a portfolio of different S&P 500 stocks over a custom time horizon. You can then look at the portfolio returns as well as simple Value-at-Risk and Expected-Shortfall metrics for this portfolio.
+Below is an interactive Shinylive-R app that allows you to select a portfolio from a handful of different S&P 500 stocks over a custom time horizon. You can then look at the portfolio returns as well as simple Value-at-Risk and Expected-Shortfall metrics for this portfolio.
 
 Because Shinylive does not allow API requests via `tidyquant::tq_get()`, I had to preprocess the data and write it out to a csv file. And because I could not get it to work with the local csv file, I then comitted that csv file to a public github repository. The Shinylive app then fetches the data from that repository. Everything else - the calculations and plotting - happens locally in your browser.
 
@@ -15,6 +15,8 @@ To have a look at the code for downloading and writing the data to csv, you can 
 #| code-fold: true
 
 library(tidyverse)
+
+# A full list of S&P 500 constituents is available under "https://raw.githubusercontent.com/epicycloids/sp500-tickers/refs/heads/master/sp500.csv"
 
 stocks <- list(
   "Apple" = "AAPL",
@@ -46,7 +48,7 @@ stocks_vec <- list_simplify(stocks) %>% unname()
 
 stock_data <- tidyquant::tq_get(
       stocks_vec,
-      from = "2010-01-01",
+      from = "2000-01-01",
       to = "2024-12-31"
     )
 
@@ -57,7 +59,7 @@ stock_returns <- stock_data %>%
   slice_tail(n = -1) %>%
   ungroup()
 
-write_csv(stock_returns, "assets/stock_returns.csv")
+write_csv(stock_returns, "../assets/stock_returns.csv")
 ```
 
 And here is the app.
