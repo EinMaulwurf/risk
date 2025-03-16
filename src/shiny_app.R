@@ -68,7 +68,7 @@ ui <- fluidPage(
           p("Additional settings for the VAR plot"),
           numericInput(
             "var_alpha",
-            "VAR α",
+            "VAR (1-α)",
             value = 0.01,
             min = 0.001,
             max = 0.1
@@ -128,6 +128,14 @@ ui <- fluidPage(
               value_box(
                 title = "Parametric Expected-Shortfall",
                 value = uiOutput("es_normal_output"),
+                theme = "bg-gradient-indigo-blue",
+              )
+            ),
+            column(
+              12,
+              value_box(
+                title = "Maximum drawdown",
+                value = uiOutput("max_drawdown_output"),
                 theme = "bg-gradient-indigo-blue",
               )
             )
@@ -270,7 +278,7 @@ server <- function(input, output) {
   # })
 
   output$var_empirical_output <- renderText({
-    empirical_var_alpha <- quantile(portfolio_returns()$return, probs = input$var_alpha, names = FALSE, type = 3)
+    empirical_var_alpha <- quantile(portfolio_returns()$return, probs = input$var_alpha, names = FALSE)
     paste0(round(empirical_var_alpha * 100, digits = 2), "%")
   })
 
@@ -290,6 +298,11 @@ server <- function(input, output) {
   output$es_normal_output <- renderText({
     normal_es_alpha <- portfolio_mean() - sqrt(portfolio_var()) * dnorm(qnorm(input$var_alpha, 0, 1)) / input$var_alpha
     paste0(round(normal_es_alpha * 100, digits = 2), "%")
+  })
+  
+  output$max_drawdown_output <- renderText({
+    max_drawdown <- min(portfolio_returns()$return)
+    paste0(round(max_drawdown * 100, digits = 2), "%")
   })
 
   observeEvent(input$reset_portfolio, {
