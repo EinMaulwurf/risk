@@ -139,10 +139,6 @@ This is the average of the simulated returns that are less than or equal to the 
 
 **Intuition:** Monte Carlo simulation is like running a large number of "what-if" scenarios. It's flexible because you can use different models to capture various market behaviors. However, it's computationally intensive, and the results are only as good as the model you choose.
 
-**Planned Enhancements:** Future improvements will include using more sophisticated models like GARCH (to capture changing volatility), copulas (to model how different assets move together), and jump diffusion processes (to account for sudden, large market movements).
-
----
-
 # Method Comparison
 
 The following table summarizes the key characteristics of each method:
