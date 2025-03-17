@@ -55,7 +55,7 @@ ui <- fluidPage(
           ),
           selectInput(
             "select_portfolio",
-            "Select options below:",
+            "Select portfolio below:",
             stocks,
             selected = list("AAPL", "XOM"),
             multiple = TRUE

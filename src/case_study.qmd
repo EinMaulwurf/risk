@@ -36,7 +36,7 @@ We'll give each stock an equal weight (20%) in the portfolio. This could easily 
 ```{r}
 stocks <- c("AAPL", "XOM", "UNH", "JPM", "COST")
 weights_df <- tibble(symbol = stocks, weight = rep(1 / length(stocks), length(stocks)))
-start_date <- today() - (6 * 365)  # Go back 6 years
+start_date <- today() - (6 * 365) # Go back 6 years
 end_date <- today()
 ```
 
@@ -51,7 +51,7 @@ Next, we calculate the daily *returns* for each stock. A return is the percentag
 ```{r}
 stock_returns <- stock_data %>%
   select(symbol, date, adjusted) %>%
-  group_by(symbol) %>%  # Calculate returns for each stock separately
+  group_by(symbol) %>% # Calculate returns for each stock separately
   mutate(return = (adjusted - lag(adjusted)) / lag(adjusted)) %>% # Daily return
   slice_tail(n = -1) %>% # Remove the first row (no return for the first day)
   ungroup()
@@ -83,13 +83,13 @@ p2 <- stock_returns %>%
     legend.position = "right",
     legend.position.inside = c(0.9, 0.5)
   ) +
-    labs(title = "Distribution of Individual Stock Returns")
+  labs(title = "Distribution of Individual Stock Returns")
 
 p3 <- portfolio_returns %>%
   ggplot(aes(x = return)) +
   geom_histogram(bins = 100) +
   coord_cartesian(xlim = c(-0.15, 0.15)) +
-    labs(title = "Distribution of Portfolio Returns")
+  labs(title = "Distribution of Portfolio Returns")
 
 p1 + (p2 / p3) # Combine plots using patchwork
 ```
@@ -136,7 +136,7 @@ ggplot() +
     fun = dnorm, args = list(mean = portfolio_mean, sd = sqrt(portfolio_var)),
     linetype = "dashed"
   ) +
-    labs(title = "Portfolio Returns vs. Fitted Normal Distribution")
+  labs(title = "Portfolio Returns vs. Fitted Normal Distribution")
 ```
 
 # Value at Risk (VaR) Calculation
@@ -150,9 +150,9 @@ We'll compare the empirical VaR (from the actual data) and the theoretical VaR (
 
 ```{r}
 #| warning: false
-empirical_var_001 <- quantile(portfolio_returns$return, 0.001, type = 2)
+empirical_var_001 <- quantile(portfolio_returns$return, 0.001, type = 1) # use type = 1 for alignment with ECDF
 normal_var_001 <- qnorm(0.001, mean = portfolio_mean, sd = sqrt(portfolio_var))
-empirical_var_05 <- quantile(portfolio_returns$return, 0.05)
+empirical_var_05 <- quantile(portfolio_returns$return, 0.05, type = 1)
 normal_var_05 <- qnorm(0.05, mean = portfolio_mean, sd = sqrt(portfolio_var))
 
 portfolio_returns %>%
@@ -178,30 +178,31 @@ portfolio_returns %>%
     breaks = c(0, 0.001, 0.01, 0.05, 0.25, 0.5, 1)
   ) +
   scale_x_continuous(breaks = seq(-0.125, 0.1, by = 0.025), limits = c(-0.125, 0.025)) +
-    labs(title = "CDF of Portfolio Returns with VaR Levels")
+  labs(title = "CDF of Portfolio Returns with VaR Levels")
 ```
 
 Let's calculate the VaR values numerically using both methods:
 
 - **Empirical VaR:** We use the `quantile()` function to find the specified quantiles of the `portfolio_returns$return` data.
 - **Theoretical VaR:** We use the `qnorm()` function, which is the quantile function for the normal distribution, with the calculated `portfolio_mean` and `portfolio_var`.
-We use `type = 2` for the `quantile` function to be consistent with the plot above.
+
+We use `type = 1` in the `quantile` function to be consistent with the plot above. The different quantile functions used in R can be found in the [documentation](https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/quantile). Differences only really arise for extreme quantiles where there are few observations.
 
 ```{r}
 # 95% VAR
 qnorm(0.05, mean = portfolio_mean, sd = sqrt(portfolio_var))
-quantile(portfolio_returns$return, probs = 0.05, type = 2) %>% unname()
+quantile(portfolio_returns$return, probs = 0.05, names = FALSE, type = 1)
 
 # 99% VAR
 qnorm(0.01, mean = portfolio_mean, sd = sqrt(portfolio_var))
-quantile(portfolio_returns$return, probs = 0.01, type = 2) %>% unname()
+quantile(portfolio_returns$return, probs = 0.01, names = FALSE, type = 1)
 
 # 99.9% VAR
 qnorm(0.001, mean = portfolio_mean, sd = sqrt(portfolio_var))
-quantile(portfolio_returns$return, probs = 0.001, type = 2) %>% unname()
+quantile(portfolio_returns$return, probs = 0.001, names = FALSE, type = 1)
 ```
 
-The results confirm our visual observation: the normal distribution underestimates the tail risk, especially at the 99.9% confidence level. The worst observed daily loss (-12%) would be considered virtually impossible under the normal distribution assumption.
+The results confirm our visual observation: the normal distribution underestimates the tail risk, especially at the 99.9% confidence level. The worst observed daily loss (-12%) would be considered virtually impossible under the normal distribution assumption. And looking at the returns over time from above or the table with the 10 worst days, its clear that such big downturns can even happen on multiple days in a short timeframe, something we have not (yet) captured in the models at all.
 
 ```{r}
 # Probability of observing the worst day's return under the normal assumption
@@ -234,7 +235,7 @@ Where:
 ```{r}
 # 95% ES
 portfolio_returns %>%
-  filter(return < quantile(return, probs = 0.05, type = 2)) %>%
+  filter(return < quantile(return, probs = 0.05, type = 1)) %>%
   pull(return) %>%
   mean()
 
@@ -242,7 +243,7 @@ portfolio_mean - sqrt(portfolio_var) * dnorm(qnorm(0.05, 0, 1)) / 0.05
 
 # 99% ES
 portfolio_returns %>%
-  filter(return < quantile(return, probs = 0.01, type = 2)) %>%
+  filter(return < quantile(return, probs = 0.01, type = 1)) %>%
   pull(return) %>%
   mean()
 
@@ -250,7 +251,7 @@ portfolio_mean - sqrt(portfolio_var) * dnorm(qnorm(0.01, 0, 1)) / 0.01
 
 # 99.9% ES
 portfolio_returns %>%
-  filter(return < quantile(return, probs = 0.001, type = 2)) %>%
+  filter(return < quantile(return, probs = 0.001, type = 1)) %>%
   pull(return) %>%
   mean()
 
