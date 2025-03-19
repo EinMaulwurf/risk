@@ -214,7 +214,7 @@ portfolio_returns %>%
 
 # Monte Carlo VaR
 
-Monate Carlo methods can also be used for simulating the stock and portfolio returns. To do this using the covariance matrix of the returns. The resulting matrix $\Sigma$ can be decomposed into $VDV^T$, where $V$ is a matrix of eigenvectors of $\Sigma$ and $D$ is a diagonal matrix of the eigenvalues. Another approach would be the Cholesky decomposition which is faster, but less interpretable and stable. The $V$ matrix can then be scaled to yield a transformation matrix $T=\sqrt{D}V^T$.
+Monte Carlo methods can also be used for simulating the stock and portfolio returns. To do this using the covariance matrix of the returns. The resulting matrix $\Sigma$ can be decomposed into $VDV^T$, where $V$ is a matrix of eigenvectors of $\Sigma$ and $D$ is a diagonal matrix of the eigenvalues. Another approach would be the Cholesky decomposition which is faster, but less interpretable and stable. The $V$ matrix can then be scaled to yield a transformation matrix $T=\sqrt{D}V^T$.
 
 ```{r}
 stock_returns_matrix <- stock_returns %>%
