@@ -212,6 +212,104 @@ portfolio_returns %>%
   pnorm(mean = portfolio_mean, sd = sqrt(portfolio_var))
 ```
 
+# Monte Carlo VaR
+
+Monate Carlo methods can also be used for simulating the stock and portfolio returns. To do this using the covariance matrix of the returns. The resulting matrix $\Sigma$ can be decomposed into $VDV^T$, where $V$ is a matrix of eigenvectors of $\Sigma$ and $D$ is a diagonal matrix of the eigenvalues. Another approach would be the Cholesky decomposition which is faster, but less interpretable and stable. The $V$ matrix can then be scaled to yield a transformation matrix $T=\sqrt{D}V^T$.
+
+```{r}
+stock_returns_matrix <- stock_returns %>%
+  select(symbol, date, return) %>%
+  pivot_wider(names_from = symbol, values_from = return) %>%
+  select(-date) %>%
+  as.matrix()
+
+head(stock_returns_matrix)
+
+Sigma <- cov(stock_returns_matrix)
+w <- weights_df$weight
+
+var <- t(w) %*% Sigma %*% w
+
+eigenvectors <- eigen(Sigma)$vectors
+eigenvalues <- eigen(Sigma)$values
+
+trans_matrix <- sqrt(diag(eigenvalues)) %*% t(eigenvectors)
+trans_matrix
+```
+
+This new matrix $T$ can finally be used to turn a matrix of i.i.d. standard normal variables into correlated returns. And to get the portfolio returns, we can multiply the returns matrix by the portfolio weights.
+
+```{r}
+set.seed(1)
+n <- 500
+
+stock_returns_matrix_sim <- matrix(rnorm(n * length(w)), ncol = length(w)) %*% trans_matrix
+colnames(stock_returns_matrix_sim) <- colnames(stock_returns_matrix)
+head(stock_returns_matrix_sim)
+
+portfolio_returns_sim <- (stock_returns_matrix_sim %*% w)[, 1]
+
+# Plot stock returns
+stock_returns_matrix_sim %>%
+  as_tibble() %>%
+  mutate(t = 1:n) %>%
+  pivot_longer(-t) %>%
+  mutate(value_cum = cumprod(1 + value), .by = name) %>%
+  ggplot(aes(x = t, y = value_cum, color = name)) +
+  geom_line(alpha = 0.5) +
+  geom_line(
+    data = tibble(t = 1:n, portfolio = cumprod(1 + portfolio_returns_sim)),
+    aes(x = t, y = portfolio), inherit.aes = FALSE
+  )
+```
+
+These portfolio returns can then be used to calculate the VaR by finding the empirical $\alpha$ quantile.
+
+```{r}
+quantile(portfolio_returns_sim, probs = 0.01, names = FALSE)
+```
+
+Above showed the "manual" way, but R has functions to generate multivariate normal distributions. This, together with the covariance matrix $\Sigma$ yields the same results.
+
+```{r}
+set.seed(1)
+
+MASS::mvrnorm(n = 500, mu = rep(0, length(w)), Sigma = Sigma) %>%
+  as_tibble() %>%
+  mutate(t = 1:n) %>%
+  pivot_longer(-t) %>%
+  mutate(value_cum = cumprod(1 + value), .by = name) %>%
+  ggplot(aes(x = t, y = value_cum, color = name)) +
+  geom_line()
+```
+
+The "manual" route has the advantage, that other distributions aside the normal distribution can be easily used. For example, a t-distribution with low degrees of freedom (set to 5 in the following example) can simulate fatter tails and thus a higher probability of extreme events.
+
+```{r}
+set.seed(1)
+n <- 500
+
+stock_returns_matrix_sim_t <- matrix(rt(n * length(w), df = 5), ncol = length(w)) %*% trans_matrix
+colnames(stock_returns_matrix_sim_t) <- colnames(stock_returns_matrix)
+
+portfolio_returns_sim_t <- (stock_returns_matrix_sim_t %*% w)[, 1]
+
+# Plot stock returns
+stock_returns_matrix_sim_t %>%
+  as_tibble() %>%
+  mutate(t = 1:n) %>%
+  pivot_longer(-t) %>%
+  mutate(value_cum = cumprod(1 + value), .by = name) %>%
+  ggplot(aes(x = t, y = value_cum, color = name)) +
+  geom_line(alpha = 0.5) +
+  geom_line(
+    data = tibble(t = 1:n, portfolio = cumprod(1 + portfolio_returns_sim_t)),
+    aes(x = t, y = portfolio), inherit.aes = FALSE
+  )
+
+quantile(portfolio_returns_sim_t, probs = 0.01, names = FALSE)
+```
+
 # Expected Shortfall (ES) Calculation
 
 Expected Shortfall (ES) provides a more comprehensive view of tail risk. It tells us the average loss we expect when losses exceed the VaR.
