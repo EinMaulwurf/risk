@@ -21,12 +21,12 @@ The VaR at a confidence level $\alpha$ (e.g., 95% or 99%) tells you the maximum 
 To calculate it, we find the $\alpha$-quantile of the historical returns. Think of sorting all the daily returns from worst to best. The VaR is the return at the specific point where $(1-\alpha)$% of the returns are worse.
 
 $$
-\text{VaR}_\alpha = Q_\alpha(\{r_t\}_{t=1}^T)
+\text{VaR}_\alpha = Q_\alpha(\{r_t\}_{t=1}')
 $$
 
 Where:
 
-- $\{r_t\}_{t=1}^T$ represents the set of historical returns, with $r_t$ being the return on day $t$, and $T$ being the total number of days.
+- $\{r_t\}_{t=1}'$ represents the set of historical returns, with $r_t$ being the return on day $t$, and $T$ being the total number of days.
 - $Q_\alpha$ is the quantile function. It finds the value at the $\alpha$ percentile of the sorted historical returns.
 
 **Expected Shortfall (ES):**
@@ -112,32 +112,52 @@ Where:
 
 Monte Carlo simulation is like creating a "virtual future" many times over. We use a computer to generate thousands of possible scenarios for future returns, based on a chosen statistical model.
 
-**Key Idea:** Instead of relying on historical data or a single distribution, we simulate many possible future paths.
+**Key Idea:** Instead of relying on historical data or a single distribution, we simulate many possible future paths that preserve the correlation structure between assets in our portfolio.
 
 **Workflow:**
 
-1. **Choose a Model:** Select a statistical model that describes how returns change over time (e.g., a normal distribution, or more complex models).
-2. **Estimate Parameters:** Estimate the parameters of the chosen model (e.g., mean and standard deviation) using historical data.
-3. **Simulate:** Generate a large number ($N$) of random return paths based on the model and parameters. Each path represents a possible future sequence of returns.
-4. **Calculate Risk Metrics:** Calculate VaR and ES from the simulated returns, just like we did with historical data in the historical simulation method.
+1. **Calculate Covariance Matrix:** Estimate the covariance matrix ($\Sigma$) from historical returns to capture the relationships between different assets.
+
+2. **Decompose the Covariance Matrix:** Use eigenvalue decomposition to break down the covariance matrix:
+   $$\Sigma = VDV'$$
+   Where:
+   - $V$ is the matrix of eigenvectors
+   - $D$ is the diagonal matrix of eigenvalues
+   - $V'$ is the transpose of $V$
+   
+   The eigenvectors ($V$) can be interpreted as new orthogonal "axes" (principal components) where the data becomes uncorrelated. The eigenvalues ($D$) represent the variance along these new axes.
+
+3. **Create Transformation Matrix:** Construct a transformation matrix that can convert uncorrelated random variables into correlated ones:
+   $$T = \sqrt{D}V'$$
+   Where $\sqrt{D}$ is the diagonal matrix containing the square roots of the eigenvalues. This term scales the eigenvectors by the standard deviation (since the eigenvalues can be thought of as the variances). The resulting matrix $T$ "encodes" the covariance structure of the original data. When applied to uncorrelated random variables, it induces the desired correlation structure.
+
+4. **Generate Random Samples:** Create a matrix of independent standard normal random variables $Z$.
+
+5. **Transform to Correlated Returns:** Multiply the random samples by the transformation matrix to get correlated returns:
+   $$\tilde{R} = ZA$$
+
+6. **Calculate Portfolio Returns:** Compute the simulated portfolio returns using portfolio weights $w$:
+   $$\tilde{r}_p = \tilde{R}w$$
+
+7. **Calculate Risk Metrics:** Estimate VaR and ES from the distribution of simulated portfolio returns.
 
 **Value at Risk (VaR):**
 
 $$
-\text{VaR}_\alpha = Q_\alpha(\{\tilde{r}_i\}_{i=1}^N)
+\text{VaR}_\alpha = Q_\alpha(\{\tilde{r}_{p,i}\}_{i=1}^N)
 $$
 
-Where $\{\tilde{r}_i\}_{i=1}^N$ is the set of simulated returns.
+Where $\{\tilde{r}_{p,i}\}_{i=1}^N$ is the set of simulated portfolio returns, and $Q_\alpha$ represents the $\alpha$-quantile.
 
 **Expected Shortfall (ES):**
 
 $$
-\text{ES}_\alpha = \mathbb{E}[\tilde{r} | \tilde{r} \leq \text{VaR}_\alpha]
+\text{ES}_\alpha = \mathbb{E}[\tilde{r}_p | \tilde{r}_p \leq \text{VaR}_\alpha]
 $$
 
-This is the average of the simulated returns that are less than or equal to the simulated VaR.
+**Intuition:** The transformation approach ensures that our simulated returns maintain the same correlation structure as our historical data. This is crucial because portfolio risk isn't just about the volatility of individual assets, but how they move together.
 
-**Intuition:** Monte Carlo simulation is like running a large number of "what-if" scenarios. It's flexible because you can use different models to capture various market behaviors. However, it's computationally intensive, and the results are only as good as the model you choose.
+This Monte Carlo method creates virtual scenarios that respect how assets interact with each other in real markets. By using eigenvalue decomposition, we're essentially capturing the fundamental "risk factors" driving our portfolio's behavior, then simulating how these factors might evolve in the future.
 
 # Method Comparison
 
