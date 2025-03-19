@@ -214,7 +214,7 @@ portfolio_returns %>%
 
 # Monte Carlo VaR
 
-Monte Carlo methods can also be used for simulating the stock and portfolio returns. To do this using the covariance matrix of the returns. The resulting matrix $\Sigma$ can be decomposed into $VDV'$, where $V$ is a matrix of eigenvectors of $\Sigma$ and $D$ is a diagonal matrix of the eigenvalues. Another approach would be the Cholesky decomposition which is faster, but less interpretable and stable. The $V$ matrix can then be scaled to yield a transformation matrix $T=\sqrt{D}V'$.
+Monte Carlo methods can also be used for simulating the stock and portfolio returns. For this, we turn the covariance matrix of the returns $\Sigma$ into a transformation matrix $T$. For more information on this see [methodology](methodology.qmd).
 
 ```{r}
 stock_returns_matrix <- stock_returns %>%
@@ -237,13 +237,15 @@ trans_matrix <- sqrt(diag(eigenvalues)) %*% t(eigenvectors)
 trans_matrix
 ```
 
-This new matrix $T$ can finally be used to turn a matrix of i.i.d. standard normal variables into correlated returns. And to get the portfolio returns, we can multiply the returns matrix by the portfolio weights.
+This new matrix $T$ can finally be used to turn a matrix $Z$ of i.i.d. standard normal variables into correlated returns. And to get the portfolio returns, we can multiply the returns matrix by the portfolio weights.
 
 ```{r}
 set.seed(1)
 n <- 500
 
-stock_returns_matrix_sim <- matrix(rnorm(n * length(w)), ncol = length(w)) %*% trans_matrix
+Z <- matrix(rnorm(n * length(w)), ncol = length(w))
+
+stock_returns_matrix_sim <- Z %*% trans_matrix
 colnames(stock_returns_matrix_sim) <- colnames(stock_returns_matrix)
 head(stock_returns_matrix_sim)
 
@@ -283,11 +285,13 @@ MASS::mvrnorm(n = 500, mu = rep(0, length(w)), Sigma = Sigma) %>%
   geom_line()
 ```
 
-The "manual" route has the advantage, that other distributions aside the normal distribution can be easily used. For example, a t-distribution with low degrees of freedom (set to 5 in the following example) can simulate fatter tails and thus a higher probability of extreme events.
+The "manual" route has the advantage, that other distributions aside the normal distribution can be easily used. For example, a t-distribution with low degrees of freedom can simulate fatter tails and thus a higher probability of extreme events. In the following example the degrees of freedome are set to $\nu=3$. Going lower would cause problems as the variance is either infinit or undefined for $\nu \leq 2$. I also scale the resulting matrix $Z$ so that the variance is 1.
 
 ```{r}
 set.seed(1)
 n <- 500
+
+Z_t <- matrix(rt(n * length(w), df = 3), ncol = length(w)) * sqrt((3 - 2) / 3)
 
 stock_returns_matrix_sim_t <- matrix(rt(n * length(w), df = 5), ncol = length(w)) %*% trans_matrix
 colnames(stock_returns_matrix_sim_t) <- colnames(stock_returns_matrix)
@@ -308,6 +312,26 @@ stock_returns_matrix_sim_t %>%
   )
 
 quantile(portfolio_returns_sim_t, probs = 0.01, names = FALSE)
+```
+
+Here is a comparison of the CDF of the historical portfolio returns together with the simulated returns using the normal and (scaled) t-distribution for the $Z$ matrix.
+
+We can again see the maximum loss of about -0.12 for the historical values and -0.05 for the simulation with the normal. The simulation with the t-distribution slots in the middle with a maximum loss of -0.075 and thus proving more robust than the normal. Note, that this is the result for a simulation with only 500 timesteps/days.
+
+```{r}
+bind_rows(
+  tibble(type = "historical", return = portfolio_returns$return),
+  tibble(type = "normal", return = portfolio_returns_sim),
+  tibble(type = "t", return = portfolio_returns_sim_t)
+) %>%
+  ggplot(aes(x = return, color = type))+
+  stat_ecdf()+
+  scale_y_continuous(
+    transform = scales::pseudo_log_trans(sigma = .001),
+    breaks = c(0, 0.001, 0.0025, 0.01, 0.05, 0.25)
+  )+
+  scale_x_continuous(breaks = seq(-0.15, 0, by = 0.025))+
+  coord_cartesian(xlim = c(-0.15, 0), ylim = c(0, 0.25))
 ```
 
 # Expected Shortfall (ES) Calculation
