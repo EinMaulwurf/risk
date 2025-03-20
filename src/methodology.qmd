@@ -131,7 +131,7 @@ Monte Carlo simulation is like creating a "virtual future" many times over. We u
    $$T = \sqrt{D}V'$$
    Where $\sqrt{D}$ is the diagonal matrix containing the square roots of the eigenvalues. This term scales the eigenvectors by the standard deviation (since the eigenvalues can be thought of as the variances). The resulting matrix $T$ "encodes" the covariance structure of the original data. When applied to uncorrelated random variables, it induces the desired correlation structure.
 
-4. **Generate Random Samples:** Create a matrix of independent standard normal random variables $Z$.
+4. **Generate Random Samples:** Create a matrix of independent standard normal random variables $Z$ of size $n \times k$ where $k$ is the number of stocks in your original portfolio. The rows $n$ can be chosen freely.
 
 5. **Transform to Correlated Returns:** Multiply the random samples by the transformation matrix to get correlated returns:
    $$\tilde{R} = ZA$$
