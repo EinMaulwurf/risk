@@ -237,7 +237,7 @@ trans_matrix <- sqrt(diag(eigenvalues)) %*% t(eigenvectors)
 trans_matrix
 ```
 
-This new matrix $T$ can finally be used to turn a matrix $Z$ of i.i.d. standard normal variables into correlated returns. And to get the portfolio returns, we can multiply the returns matrix by the portfolio weights.
+This new matrix $T$ can finally be used to turn a matrix $Z$ of i.i.d. standard normal variables into correlated returns. And to get the portfolio returns, we can multiply the returns matrix by the portfolio weights. Note that we set the expected value of $Z$ to zero ($\mathbb{E}(Z)=0$). While this is not a perfect representation of reality, where returns have a slight positive expected return, it's close enough for the short term.
 
 ```{r}
 set.seed(1)
