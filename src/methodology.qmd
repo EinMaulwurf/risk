@@ -21,13 +21,18 @@ The VaR at a confidence level $\alpha$ (e.g., 95% or 99%) tells you the maximum 
 To calculate it, we find the $\alpha$-quantile of the historical returns. Think of sorting all the daily returns from worst to best. The VaR is the return at the specific point where $(1-\alpha)$% of the returns are worse.
 
 $$
-\text{VaR}_\alpha = Q_\alpha(\{r_t\}_{t=1}')
+\text{VaR}_\alpha = Q_\alpha(\{r_t\}_{t=1}^T)
 $$
 
 Where:
 
-- $\{r_t\}_{t=1}'$ represents the set of historical returns, with $r_t$ being the return on day $t$, and $T$ being the total number of days.
+- $\{r_t\}_{t=1}^T$ represents the set of historical returns, with $r_t$ being the return on day $t$, and $T$ being the total number of days.
 - $Q_\alpha$ is the quantile function. It finds the value at the $\alpha$ percentile of the sorted historical returns.
+
+::: {.callout-note}
+# Calculating returns
+Returns from $t-1$ to $t$ can be calculated either by the arithmetic return $r_t = \frac{S_t - S_{t-1}}{S_{t-1}}$ or using the natural logarithm $\tilde{r}_t = \ln(S_t)-\ln(S_{t-1})$. For small returns, both yield similar results, because $\ln(1+r_t) \approx r_t$. Both methods have their strength and weaknesses.
+:::
 
 **Expected Shortfall (ES):**
 

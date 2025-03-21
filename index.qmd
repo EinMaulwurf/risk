@@ -41,3 +41,4 @@ The code for this project is available on [GitHub](https://github.com/EinMaulwur
 - [ ] Use different parametric models besides the normal distribution. Perhaps the t-distribution for fat tails.
 - [ ] Build portfolio with other assets besides stocks, like bonds, FX or derivatives.
 - [ ] Clean up and align notation (for example, I sometimes use $\alpha=1\%$ and $\alpha=99\%$ to mean the same for the confidence level of VaR).
+- [ ] Write more about pros and cons of arithmetic returns vs log returns.
