@@ -32,6 +32,8 @@ website:
       - href: src/methodology.qmd
         text: "Methodology"
       - href: src/case_study.qmd
-        text: "Case Study"
+        text: "Value-at-Risk Case Study"
+      - href: src/volatility.qmd
+        text: "Modelling Volatility"
       - href: src/risk_app.qmd
         text: "Interactive App"

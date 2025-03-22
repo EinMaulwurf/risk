@@ -1,0 +1,242 @@
+---
+title: Modelling Volatility
+---
+
+# Overview
+
+On this page, we want to show with a practical example how volatility in a portfolio can be modeled. When looking at historical returns of stocks, it's apparent that volatility is not constant over time, but is clustered. So during times of market distress, like the financial crisis
+
+# Setup
+
+As before, we start by loading the packages that will be used.
+
+```{r}
+#| warning: false
+#| message: false
+
+library(tidyverse)
+library(patchwork)
+library(tidyquant)
+library(forecast)
+
+ggplot2::theme_set(theme_bw()) # Set a clean theme for plots
+```
+
+Now, we define the portfolio. We'll use the same five stocks for our portfolio as in the ![VaR Case Study](case_study.qmd): Apple, Exxon Mobil, UnitedHealthCare, JP Morgan and Costco. Again, they receive an equal weight in the portfolio.
+
+```{r}
+stocks <- c("AAPL", "XOM", "UNH", "JPM", "COST")
+weights_df <- tibble(symbol = stocks, weight = rep(1 / length(stocks), length(stocks)))
+start_date <- ymd("2025-03-20") - (6 * 365) # Go back 6 years
+end_date <- ymd("2025-03-20")
+
+stock_data <- tq_get(stocks, from = start_date, to = end_date)
+
+stock_returns <- stock_data %>%
+  select(symbol, date, adjusted) %>%
+  group_by(symbol) %>% # Calculate returns for each stock separately
+  mutate(return = (adjusted - lag(adjusted)) / lag(adjusted)) %>% # Daily return
+  slice_tail(n = -1) %>% # Remove the first row (no return for the first day)
+  ungroup()
+
+portfolio_returns <- stock_returns %>%
+  left_join(weights_df, by = join_by(symbol)) %>% # Combine with weights
+  group_by(date) %>% # Calculate portfolio return for each day
+  summarise(return = weighted.mean(return, weight)) # Weighted average return
+
+portfolio_returns_vec <- portfolio_returns$return
+```
+
+# Autocorrelation
+
+In the following, we will assume the daily returns to have an expected value of 0. This is approximately the case for shorter time periods. And even for longer periods, the expected return is very small.
+
+```{r}
+t.test(tail(portfolio_returns_vec, 100))
+t.test(tail(portfolio_returns_vec, 500))
+```
+
+This assumption allows us to calculate the variance as the returns squared, because with $\mu=0$
+
+$$
+\begin{aligned}
+\rho_k &= \frac{\gamma_k}{\gamma_0} \\
+&= \frac{\operatorname{E}[(r_t - \mu)(r_{t-k} - \mu)]}{\operatorname{E}[(r_t - \mu)^2]} \\
+&= \frac{\operatorname{E}[r_t r_{t-k}]}{\operatorname{E}[r_t^2]}
+\end{aligned}
+$$
+where $\rho_k$ is the autocorrelation at lag $k$. 
+
+This can be visualized using a so called ACF plot and makes it apparent, that the variance of todays returns are very much dependent on the past variance. The dashed line shows that all lags up to around 25 days are statistically signifikant.
+
+```{r}
+portfolio_variance_vec <- portfolio_returns_vec^2
+forecast::ggAcf(portfolio_variance_vec)
+```
+
+```{r}
+#| eval: false
+#| include: false
+
+# arima(portfolio_returns_vec^2, order = c(1, 0, 1))
+
+pq_values <- expand.grid(p = 1:10, q = 1:10)
+
+best_bic <- Inf
+best_model <- NULL
+
+for (i in 1:nrow(pq_values)) {
+  p <- pq_values[i, 1]
+  q <- pq_values[i, 2]
+
+  # print(paste("p: ", p, " q: ", q, sep = ""))
+
+  arma_model <- arima(portfolio_variance_vec, order = c(p, 0, q))
+  bic <- BIC(arma_model)
+
+  if (bic < best_bic) {
+    best_p <- p
+    best_q <- q
+    best_bic <- bic
+    best_model <- arma_model
+  }
+}
+
+paste("Best p: ", best_p, " | Best q: ", best_q, sep = "")
+```
+
+# Moving Average
+
+We could try and model the variance using a simple moving average of the $m$ past days.
+
+$$
+\sigma_t^2 = \frac{1}{m} \sum_{\tau=1}^m r_{t-\tau}^2
+$$
+
+The choice of $m$ is somewhat arbitrary, but we'll use $m=25$, because thats the number of statistically significant lags in the above ACF plot.
+
+The result already looks quite good. While (of course) a lot smoother than the observed variances, we can clearly see the turbulences in 2022 and the calmer period in 2023-2024.
+
+```{r}
+#| warning: false
+
+m <- 25
+
+# predicted_var <- numeric(length(portfolio_variance_vec))
+#
+# for(i in 1:length(portfolio_variance_vec)) {
+#   m_variances <- portfolio_variance_vec[max(i-m, 1):i]
+#   predicted_var[i] <- 1/m * sum(m_variances)
+# }
+
+portfolio_returns %>%
+  mutate(variance = return^2) %>%
+  mutate(variance_pred = 1 / m * zoo::rollsum(variance, m, na.pad = TRUE)) %>%
+  filter(date > ymd("2020-12-31")) %>%
+  pivot_longer(starts_with("variance")) %>%
+  ggplot(aes(x = date, y = value)) +
+  geom_line() +
+  facet_wrap(~name, ncol = 1, scales = "free")
+```
+
+
+# Exponential Smoothing
+
+With the moving average, there is the implicit assumption that all $m$ past variances have the same impact on todays variance. This is probably not the case as can be seen in the ACF plot which shows a decreasing autocorrelation. That's why we'll look at exponential smoothing next:
+
+$$
+\sigma_{t}^2 = (1-\lambda) \sum_{\tau=1}^\infty \lambda^{\tau-1} r_{t-\tau}^2
+$$
+with $0 < \lambda < 1$
+
+We start with $\lambda = 0.94$, because its suggested in "Elements of Financial Risk Management" by Peter F. Christoffersen. I implement the sum using a for loop. This might not be the most elegant approach, but it works well enough for this use case.
+
+```{r}
+f_pred_var <- function(lambda = 0.94) {
+  predicted_var <- numeric(length(portfolio_variance_vec))
+
+  for (i in 1:length(portfolio_variance_vec)) {
+    # Previous squared returns, in "descending" order
+    previous_variances <- portfolio_variance_vec[max(i - 1, 0):1]
+    # Calculate lambdas for sum
+    lambdas <- lambda^(1:max(i - 1, 0))
+    # Calculate the actual sum
+    predicted_var[i] <- (1 - lambda) * sum(lambdas * previous_variances)
+  }
+
+  predicted_var
+}
+
+portfolio_returns %>%
+  mutate(variance = portfolio_variance_vec) %>%
+  mutate(variance_pred = f_pred_var(0.94)) %>%
+  filter(date > ymd("2020-12-31")) %>%
+  ggplot(aes(x = date, y = variance_pred)) +
+  geom_line()
+```
+
+Now find best fitting $\lambda$. For that, we repackage the code from above into a function with $\lambda$ as its input. But now, the return value is the sum of squared residuals (SSR) between the predicted variances and observed variances. This allows us to measure the difference between the actual and predicted values, where lower values show a better fit.
+
+With that, we can construct a sequence of lambdas from 0 to 1, calculate the SSR for each and then plot the results to get a first feel for where the optimal $\lambda$ might lie.
+
+```{r}
+f_pred_var_ssr <- function(lambda) {
+  predicted_var <- f_pred_var(lambda)
+  sum((predicted_var - portfolio_variance_vec)^2)
+}
+
+lambda_grid_search <- tibble(lambda = seq(0.01, 0.99, by = 0.03)) %>%
+  mutate(ssr = map_dbl(lambda, f_pred_var_ssr))
+
+lambda_grid_search %>%
+  ggplot(aes(x = lambda, y = ssr)) +
+  geom_line()
+```
+
+The function seems to be continuous, convex and has a minimum (what we're after) $\lambda$ at around 0.75. The exact value can be found using `optim()` or `optimize()`. The resulting plot looks more "rugged" than before, which is expected because the "smoothing" influence of past returns decays more quickly with a smaller $\lambda$.
+
+```{r}
+lambda_optim <- optimize(f_pred_var_ssr, interval = c(0, 1))
+lambda_optim$minimum
+
+portfolio_returns %>%
+  mutate(
+    variance = portfolio_variance_vec,
+    variance_pred = f_pred_var(0.94),
+    variance_pred_opt = f_pred_var(lambda_optim$minimum)
+  ) %>%
+  filter(date > ymd("2020-12-31")) %>%
+  pivot_longer(starts_with("variance_pred")) %>%
+  ggplot(aes(x = date, y = value)) +
+  geom_line() +
+  facet_wrap(~name, ncol = 1, scales = "free")
+```
+
+With this approach and a smaller $\lambda$, we can cut down the computational cost by not summing over all past returns, but only a subset. Because the weight $\lambda^{\tau-1}$ approaches zero fast, we can neglect all values except, for example, the past 30 days to get basically the same results. Using $\lambda = 0.75$, the past 50 days account for nearly 100% of the weights.
+
+```{r}
+(1 - 0.75) * sum(0.75^(0:29))
+```
+
+The exponential smoothing model can also be used for forecasting the variance, here with $\lambda=0.75$.
+
+```{r}
+last_30_variances <- rev(tail(portfolio_variance_vec, 30))
+
+variance_tomorrow <- (1 - 0.75) * sum(0.75^(0:29) * last_30_variances)
+
+portfolio_returns %>%
+  mutate(variance = portfolio_variance_vec) %>%
+  slice_tail(n = 20) %>%
+  ggplot(aes(x = date, y = variance)) +
+  geom_col() +
+  geom_col(
+    data = tibble(date = end_date + 1, variance_pred = variance_tomorrow),
+    aes(y = variance_pred), fill = "red"
+  )
+```
+
+
+# (G)ARCH
+
+*coming soon*
