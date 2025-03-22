@@ -27,6 +27,8 @@ website:
     #collapse-level: 1
     search: true
     contents:
+      - href: index.qmd
+        text: "Overview"
       - href: src/methodology.qmd
         text: "Methodology"
       - href: src/case_study.qmd
