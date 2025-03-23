@@ -237,6 +237,120 @@ portfolio_returns %>%
 ```
 
 
-# (G)ARCH
+# GARCH
 
-*coming soon*
+GARCH stands for autoregressive conditional heteroskedasticity. In genral, $\text{GARCH}(p,q)$ is defined as
+$$
+\sigma_t^2 = \omega + \sum_{i=1}^{q} \alpha_i \epsilon_{t-i}^2 + \sum_{j=1}^{p} \beta_j \sigma_{t-j}^2
+$$
+but we will focus on the simpler, but still powerful and most often used case of $\text{GARCH}(1,1)$. Moreover, because we assume $\mathbb{E}(r_t)=0$, we can use the return $r_t$ directly instead of the residual $\epsilon_t$. Thus, our model will be
+$$
+\sigma_t^2 = \omega + \alpha r_{t-1}^2 + \beta \sigma_{t-1}^2
+$$
+with $\alpha + \beta < 1$.
+
+We can define the long-run average variance, also called unconditional variance, as $\sigma^2$ (without the subscript $t$) and rewrite the formula as
+$$
+\sigma_t^2 = \sigma^2 + \alpha (r_{t-1}^2 - \sigma^2) + \beta (\sigma_{t-1}^2 - \sigma^2)
+$$
+For more details, see chapter 3 in "Elements of Financial Risk Management" by Peter F. Christoffersen.
+
+First, lets look at an example
+
+```{r}
+# f_garch <- function(omega, alpha, beta,
+#                     returns_vec = portfolio_returns_vec,
+#                     variances_vec = portfolio_variance_vec) {
+#
+#   1:length(portfolio_variance_vec)
+#
+#   omega + alpha *
+# }
+
+omega <- 0.0000011
+alpha <- 0.1
+beta <- 0.899
+
+predicted_var_garch <- numeric(length(portfolio_returns_vec))
+predicted_var_garch[1] <- omega / (1 - alpha - beta) # Long-run variance
+
+for (i in 2:length(portfolio_returns_vec)) {
+  predicted_var_garch[i] <- omega +
+    alpha * portfolio_returns_vec[i - 1]^2 +
+    beta * predicted_var_garch[i - 1]
+}
+
+predicted_var_garch
+
+portfolio_returns %>%
+  mutate(
+    variance = portfolio_variance_vec,
+    variance_pred_exp_smoothing = f_pred_var(0.94),
+    variance_pred_garch = predicted_var_garch
+  ) %>%
+  filter(date > ymd("2020-12-31")) %>%
+  pivot_longer(starts_with("variance")) %>%
+  ggplot(aes(x = date, y = value, color = name)) +
+  geom_line() +
+  scale_y_continuous(transform = scales::pseudo_log_trans(sigma = 0.0001))
+```
+
+Find good parameters for GARCH
+
+```{r}
+f_garch <- function(omega, alpha, beta,
+                    returns_vec = portfolio_returns_vec,
+                    variances_vec = portfolio_variance_vec) {
+  predicted_var_garch <- numeric(length(portfolio_returns_vec))
+  predicted_var_garch[1] <- omega / (1 - alpha - beta) # Long-run variance
+
+  for (i in 2:length(portfolio_returns_vec)) {
+    predicted_var_garch[i] <- omega +
+      alpha * portfolio_returns_vec[i - 1]^2 +
+      beta * predicted_var_garch[i - 1]
+  }
+
+  predicted_var_garch
+}
+
+f_garch_ssr <- function(params, returns_vec, variances_vec) {
+  omega <- params[1]
+  alpha <- params[2]
+  beta <- params[3]
+  
+  if(alpha + beta > 1) return(1000)
+  
+  predicted_var <- f_garch(omega, alpha, beta, returns_vec, variances_vec)
+  sum((predicted_var - variances_vec)^2)
+}
+
+test_optim <- optim(
+  par = c(0.0000011, 0.1, 0.899),
+  fn = f_garch_ssr,
+  returns_vec = portfolio_returns_vec,
+  variances_vec = portfolio_variance_vec,
+  # Optimizing with the bounds fails, probably because parameter combinations with alpha + beta > 1 are tried.
+  # method = "L-BFGS-B",
+  # lower = c(1e-9, 1e-6, 1e-6),
+  # upper = c(1000, 0.1, 0.8)
+)
+test_optim$par
+```
+
+Now plot with optimal parameters.
+
+```{r}
+portfolio_returns %>%
+  mutate(
+    #variance = portfolio_variance_vec,
+    variance_pred_exp_smoothing = f_pred_var(0.94),
+    variance_pred_garch = predicted_var_garch,
+    variance_pred_garch_opt = f_garch(test_optim$par[1], test_optim$par[2], test_optim$par[3])
+  ) %>%
+  filter(date > ymd("2020-12-31")) %>%
+  pivot_longer(starts_with("variance")) %>%
+  ggplot(aes(x = date, y = value, color = name)) +
+  geom_line() +
+  #scale_y_continuous(transform = scales::pseudo_log_trans(sigma = 0.00001))+
+  theme(legend.position = "top")
+```
