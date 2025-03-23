@@ -36,8 +36,8 @@ We'll give each stock an equal weight (20%) in the portfolio. This could easily 
 ```{r}
 stocks <- c("AAPL", "XOM", "UNH", "JPM", "COST")
 weights_df <- tibble(symbol = stocks, weight = rep(1 / length(stocks), length(stocks)))
-start_date <- today() - (6 * 365) # Go back 6 years
-end_date <- today()
+start_date <- ymd("2025-03-20") - (6 * 365) # Go back 6 years
+end_date <- ymd("2025-03-20")
 ```
 
 We use `tq_get()` from `tidyquant` to download the daily adjusted closing prices for these stocks over the past six years. `tq_get()` is a wrapper around the `quantmod::getSymbols()` function, but it returns a `tibble` (a modern data frame), which is easier to work with in the `tidyverse`.
