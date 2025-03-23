@@ -6,6 +6,11 @@ title: Modelling Volatility
 
 On this page, we want to show with a practical example how volatility in a portfolio can be modeled. When looking at historical returns of stocks, it's apparent that volatility is not constant over time, but is clustered. So during times of market distress, like the financial crisis
 
+:::{.callout-note}
+# Source
+This page is largely based on the book "Elements of Financial Risk Management" by Peter F. Christoffersen [link](https://doi.org/10.1016/B978-0-12-174232-4.X5000-4). The code for the implementation is written by myself.
+:::
+
 # Setup
 
 As before, we start by loading the packages that will be used.
@@ -18,6 +23,7 @@ library(tidyverse)
 library(patchwork)
 library(tidyquant)
 library(forecast)
+library(rugarch)
 
 ggplot2::theme_set(theme_bw()) # Set a clean theme for plots
 ```
@@ -49,7 +55,7 @@ portfolio_returns_vec <- portfolio_returns$return
 
 # Autocorrelation
 
-In the following, we will assume the daily returns to have an expected value of 0. This is approximately the case for shorter time periods. And even for longer periods, the expected return is very small.
+In the following, we will assume the daily returns to have an expected value of 0 and are normally distributed, so that we can write $r_t = \sigma_t z_t$ where $z \sim N(0,1)$. This is approximately the case for shorter time periods. And even for longer periods, the expected return is very small.
 
 ```{r}
 t.test(tail(portfolio_returns_vec, 100))
@@ -177,6 +183,11 @@ portfolio_returns %>%
 
 Now find best fitting $\lambda$. For that, we repackage the code from above into a function with $\lambda$ as its input. But now, the return value is the sum of squared residuals (SSR) between the predicted variances and observed variances. This allows us to measure the difference between the actual and predicted values, where lower values show a better fit.
 
+:::{.callout-note}
+# SSR vs MLE
+I currently minimize a SSR loss function. It seems to work, but is not the "standard" and has some drawbacks. For example, it's sensitive to outliers and assumes an incorrect error structure. Maximum Likelihood Estimation (MLE) would probably be better, but I have not yet come around to implementing it. In the meantime, I just hope the SSR results are not (heavily) biased.
+:::
+
 With that, we can construct a sequence of lambdas from 0 to 1, calculate the SSR for each and then plot the results to get a first feel for where the optimal $\lambda$ might lie.
 
 ```{r}
@@ -255,102 +266,121 @@ $$
 $$
 For more details, see chapter 3 in "Elements of Financial Risk Management" by Peter F. Christoffersen.
 
-First, lets look at an example
+First, lets look at an example using values for $\omega$, $\alpha$ and $\beta$
 
 ```{r}
-# f_garch <- function(omega, alpha, beta,
-#                     returns_vec = portfolio_returns_vec,
-#                     variances_vec = portfolio_variance_vec) {
-#
-#   1:length(portfolio_variance_vec)
-#
-#   omega + alpha *
-# }
-
-omega <- 0.0000011
-alpha <- 0.1
-beta <- 0.899
-
-predicted_var_garch <- numeric(length(portfolio_returns_vec))
-predicted_var_garch[1] <- omega / (1 - alpha - beta) # Long-run variance
-
-for (i in 2:length(portfolio_returns_vec)) {
-  predicted_var_garch[i] <- omega +
-    alpha * portfolio_returns_vec[i - 1]^2 +
-    beta * predicted_var_garch[i - 1]
-}
-
-predicted_var_garch
-
-portfolio_returns %>%
-  mutate(
-    variance = portfolio_variance_vec,
-    variance_pred_exp_smoothing = f_pred_var(0.94),
-    variance_pred_garch = predicted_var_garch
-  ) %>%
-  filter(date > ymd("2020-12-31")) %>%
-  pivot_longer(starts_with("variance")) %>%
-  ggplot(aes(x = date, y = value, color = name)) +
-  geom_line() +
-  scale_y_continuous(transform = scales::pseudo_log_trans(sigma = 0.0001))
-```
-
-Find good parameters for GARCH
-
-```{r}
-f_garch <- function(omega, alpha, beta,
-                    returns_vec = portfolio_returns_vec,
-                    variances_vec = portfolio_variance_vec) {
-  predicted_var_garch <- numeric(length(portfolio_returns_vec))
+f_garch <- function(omega, alpha, beta, returns_vec = portfolio_returns_vec) {
+  predicted_var_garch <- numeric(length(returns_vec))
   predicted_var_garch[1] <- omega / (1 - alpha - beta) # Long-run variance
 
-  for (i in 2:length(portfolio_returns_vec)) {
+  for (i in 2:length(returns_vec)) {
     predicted_var_garch[i] <- omega +
-      alpha * portfolio_returns_vec[i - 1]^2 +
+      alpha * returns_vec[i - 1]^2 +
       beta * predicted_var_garch[i - 1]
   }
 
   predicted_var_garch
 }
 
-f_garch_ssr <- function(params, returns_vec, variances_vec) {
-  omega <- params[1]
-  alpha <- params[2]
-  beta <- params[3]
-  
-  if(alpha + beta > 1) return(1000)
-  
-  predicted_var <- f_garch(omega, alpha, beta, returns_vec, variances_vec)
-  sum((predicted_var - variances_vec)^2)
-}
-
-test_optim <- optim(
-  par = c(0.0000011, 0.1, 0.899),
-  fn = f_garch_ssr,
-  returns_vec = portfolio_returns_vec,
-  variances_vec = portfolio_variance_vec,
-  # Optimizing with the bounds fails, probably because parameter combinations with alpha + beta > 1 are tried.
-  # method = "L-BFGS-B",
-  # lower = c(1e-9, 1e-6, 1e-6),
-  # upper = c(1000, 0.1, 0.8)
-)
-test_optim$par
-```
-
-Now plot with optimal parameters.
-
-```{r}
 portfolio_returns %>%
   mutate(
-    #variance = portfolio_variance_vec,
+    # variance = portfolio_variance_vec,
     variance_pred_exp_smoothing = f_pred_var(0.94),
-    variance_pred_garch = predicted_var_garch,
-    variance_pred_garch_opt = f_garch(test_optim$par[1], test_optim$par[2], test_optim$par[3])
+    variance_pred_garch = f_garch(0.0000011, 0.1, 0.899),
   ) %>%
   filter(date > ymd("2020-12-31")) %>%
   pivot_longer(starts_with("variance")) %>%
   ggplot(aes(x = date, y = value, color = name)) +
   geom_line() +
-  #scale_y_continuous(transform = scales::pseudo_log_trans(sigma = 0.00001))+
+  # scale_y_continuous(transform = scales::pseudo_log_trans(sigma = 0.00001)) +
+  theme(legend.position = "top")
+```
+
+Now we want to find good values for our portfolio returns. For that, we will use SSR and MLE. *The MLE implementation is currently not working properly.*
+
+:::{.callout-note}
+# Maximum-Likelihood-Estimation
+*We will not go in depth on this.* MLE is a method for estimating parameters for a distribution. The key idea is to maximize the likelihood of observing the data given a set of parameters:
+$$
+\mathcal{L}(\mathbf{\theta}; \mathbf{x}) = \prod_{i=1}^n f(x_i; \mathbf{\theta})
+$$
+It is often more convenient to work with the logarithm of the likelihood function, called the log-likelihood function:
+$$
+\ell(\mathbf{\theta}; \mathbf{x}) = \sum_{i=1}^n \log f(x_i; \mathbf{\theta})
+$$
+:::
+
+```{r}
+f_garch_ssr <- function(params, returns_vec, variances_vec) {
+  omega <- params[1]
+  alpha <- params[2]
+  beta <- params[3]
+
+  predicted_var <- f_garch(omega, alpha, beta, returns_vec)
+
+  # Sum of Squared Residuals (to minimize)
+  sum((predicted_var - variances_vec)^2)
+}
+
+f_garch_mle <- function(params, returns_vec) {
+  omega <- params[1]
+  alpha <- params[2]
+  beta <- params[3]
+
+  predicted_var <- f_garch(omega, alpha, beta, returns_vec)
+
+  # Negative log-likelihood (to minimize)
+  -0.5 * sum(log(predicted_var) + (returns_vec^2) / predicted_var)
+}
+
+garch_optim_ssr <- optim(
+  par = c(0.0000011, 0.1, 0.899),
+  fn = f_garch_ssr,
+  returns_vec = portfolio_returns_vec,
+  variances_vec = portfolio_variance_vec,
+  # Optimizing with bounds fails
+  # method = "L-BFGS-B",
+  # lower = c(1e-9, 1e-6, 1e-6),
+  # upper = c(Inf, 0.999, 0.999)
+)
+garch_optim_ssr$par
+
+garch_optim_mle <- optim(
+  par = c(0.0000011, 0.1, 0.899),
+  fn = f_garch_mle,
+  returns_vec = portfolio_returns_vec,
+  # Optimizing with bounds fails
+  # method = "L-BFGS-B",
+  # lower = c(1e-12, 1e-6, 1e-6),
+  # upper = c(Inf, 0.999, 0.999)
+)
+garch_optim_mle$par
+```
+
+There is also a dedicated packages for GARCH modelling in R, `{rugarch}`, which allows for a more robust estimation. It also uses a MLE approach under the hood.
+
+```{r}
+garch_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)))
+garch_fit <- ugarchfit(garch_spec, data = portfolio_returns_vec)
+coef(garch_fit)
+```
+
+Now plot with the optimal GARCH parameters (from `{rugarch}`).
+
+```{r}
+portfolio_returns %>%
+  mutate(
+    # variance = portfolio_variance_vec,
+    variance_pred_exp_smoothing = f_pred_var(0.94),
+    variance_pred_garch = f_garch(0.0000011, 0.1, 0.899),
+    variance_pred_garch_opt = f_garch(
+      coef(garch_fit)["omega"], coef(garch_fit)["alpha1"], coef(garch_fit)["beta1"]
+    ),
+  ) %>%
+  filter(date > ymd("2020-12-31")) %>%
+  pivot_longer(starts_with("variance")) %>%
+  ggplot(aes(x = date, y = value, color = name)) +
+  geom_line() +
+  # scale_y_continuous(transform = scales::pseudo_log_trans(sigma = 0.00001)) +
   theme(legend.position = "top")
 ```
