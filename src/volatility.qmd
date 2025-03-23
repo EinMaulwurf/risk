@@ -296,7 +296,7 @@ portfolio_returns %>%
   theme(legend.position = "top")
 ```
 
-Now we want to find good values for our portfolio returns. For that, we will use SSR and MLE. *The MLE implementation is currently not working properly.*
+Now we want to find good values for our portfolio returns. For that, we will use SSR and MLE. MLE is generally preferred here, because it does only use the observed returns and not the variances (squared returns). *However, the MLE implementation is currently not working properly.*
 
 :::{.callout-note}
 # Maximum-Likelihood-Estimation

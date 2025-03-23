@@ -21,11 +21,22 @@ format:
 
 website:
   title: "Portfolio Risk"
-  #repo-url: "https://github.com/andrewheiss/ath-quarto"
+  favicon: "assets/favicon-32x32.png"
+  open-graph: true
+  repo-url: "https://github.com/EinMaulwurf/risk"
+  repo-branch: main
+  repo-actions: [edit, issue]
   sidebar:
     style: "docked"
     #collapse-level: 1
     search: true
+    tools:
+      - icon: github
+        href: "https://github.com/EinMaulwurf"
+        text: "Github"
+      # - icon: linkedin
+      #   href: "https://linkedin.com/in/sebastian-geis-7a3383205"
+      #   text: "LinkedIn"
     contents:
       - href: index.qmd
         text: "Overview"
