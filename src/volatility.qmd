@@ -2,6 +2,10 @@
 title: Modelling Volatility
 ---
 
+:::{.callout-warning}
+This page will probably be broken up into a theory/methodology part and a case-study/implementation part in the future.
+:::
+
 # Overview
 
 On this page, we want to show with a practical example how volatility in a portfolio can be modeled. When looking at historical returns of stocks, it's apparent that volatility is not constant over time, but is clustered. So during times of market distress, like the financial crisis
@@ -28,7 +32,7 @@ library(rugarch)
 ggplot2::theme_set(theme_bw()) # Set a clean theme for plots
 ```
 
-Now, we define the portfolio. We'll use the same five stocks for our portfolio as in the ![VaR Case Study](case_study.qmd): Apple, Exxon Mobil, UnitedHealthCare, JP Morgan and Costco. Again, they receive an equal weight in the portfolio.
+Now, we define the portfolio. We'll use the same five stocks for our portfolio as in the [VaR Case Study](case_study.qmd): Apple, Exxon Mobil, UnitedHealthCare, JP Morgan and Costco. Again, they receive an equal weight in the portfolio.
 
 ```{r}
 stocks <- c("AAPL", "XOM", "UNH", "JPM", "COST")
@@ -55,29 +59,34 @@ portfolio_returns_vec <- portfolio_returns$return
 
 # Autocorrelation
 
-In the following, we will assume the daily returns to have an expected value of 0 and are normally distributed, so that we can write $r_t = \sigma_t z_t$ where $z \sim N(0,1)$. This is approximately the case for shorter time periods. And even for longer periods, the expected return is very small.
+In the following, we will assume the daily returns to be normally distributed with an expected value of zero and some variance $\sigma_t^2$. Note the subscript $t$ here, which means the variance is time-varying. We can then write $r_t = \sigma_t z_t$ where $z \sim N(0,1)$.
+
+These assumptions, especially $\mathbb{E}(r_t)=0$, work well in the short term. Only for the long term, this would not be a great assumption because with this, stock markets would not rise over time. We can also test this assumption using a t-test. When looking at the last 100 returns, we find no statistically significant deviation from this assumption. But for 500 days we do.
 
 ```{r}
 t.test(tail(portfolio_returns_vec, 100))
 t.test(tail(portfolio_returns_vec, 500))
 ```
 
-This assumption allows us to calculate the variance as the returns squared, because with $\mu=0$
-
+This assumption allows us to calculate the variance as the returns squared, because 
 $$
 \begin{aligned}
-\rho_k &= \frac{\gamma_k}{\gamma_0} \\
-&= \frac{\operatorname{E}[(r_t - \mu)(r_{t-k} - \mu)]}{\operatorname{E}[(r_t - \mu)^2]} \\
-&= \frac{\operatorname{E}[r_t r_{t-k}]}{\operatorname{E}[r_t^2]}
+\mathbb{E}(r_t^2) &= \mathbb{E}(\sigma_t^2z_t^2)\\
+&= \sigma_t^2 \mathbb{E}(z_t^2) \\
+&= \sigma_t^2 (\text{Var}(z_t)+\mathbb{E}(z_t)^2) \\
+&= \sigma_t^2 (1+0^2) \\
+&= \sigma_t^2
 \end{aligned}
 $$
-where $\rho_k$ is the autocorrelation at lag $k$. 
+where we used the fact that $\sigma_t^2$ is deterministic and the rearranged variance decomposition to calculate $\mathbb{E}(z_t^2)$. The latter might seem unintuitive at first, but it can be checked easily in R using `mean(rnorm(1000)^2)`, which in fact yields (approximately) 1.
 
-This can be visualized using a so called ACF plot and makes it apparent, that the variance of todays returns are very much dependent on the past variance. The dashed line shows that all lags up to around 25 days are statistically signifikant.
+It is important to remember that this calculated variance is a noisy estimate based on our assumptions, serving as a proxy for the true, unobservable variance.
+
+The variance can be visualized using a so-called ACF (Auto-Correlation-Function) plot and makes it apparent, that the variance of today's returns is very much dependent on the past variance. The dashed line shows that all lags up to around 25 days are statistically significant. The PACF (Partial-ACF), which shows the correlation between a time series and its lags that is not explained by previous lags, shows the first two lags to be especially significant.
 
 ```{r}
 portfolio_variance_vec <- portfolio_returns_vec^2
-forecast::ggAcf(portfolio_variance_vec)
+forecast::ggAcf(portfolio_variance_vec) + forecast::ggPacf(portfolio_variance_vec)
 ```
 
 ```{r}

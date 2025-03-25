@@ -44,3 +44,4 @@ The code for this project is available on [GitHub](https://github.com/EinMaulwur
 - [ ] Write more about pros and cons of arithmetic returns vs log returns.
 - [ ] Show VaR calculations for time periods longer than one day.
 - [ ] Show how rolling VaR (1, 3, 5 year) changes over time.
+- [ ] Build a simulation for GARCH and then estimate the parameters.
