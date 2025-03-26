@@ -275,7 +275,205 @@ $$
 $$
 For more details, see chapter 3 in "Elements of Financial Risk Management" by Peter F. Christoffersen.
 
-First, lets look at an example using values for $\omega$, $\alpha$ and $\beta$
+## Simulation
+
+To first get a feel for this kind of model, it can be helpful to generate some data. That way, we can specify everything and then check if we can estimate these parameters again. We'll use $\omega = 1.1\cdot 10^{-6}$, $\alpha=0.1$ and $\beta=0.899$. Note that this model is very sensitive to the parameters.
+
+```{r}
+set.seed(3)
+
+garch_sim_n <- 1000
+garch_sim_variance <- numeric(garch_sim_n)
+garch_sim_returns <- numeric(garch_sim_n)
+
+garch_sim_omega <- 1.1e-06
+garch_sim_alpha <- 0.1
+garch_sim_beta <- 0.899
+
+garch_sim_variance[1] <- 0
+garch_sim_returns[1] <- 0.01
+
+for (t in 2:length(garch_sim_returns)) {
+  garch_sim_variance[t] <- garch_sim_omega +
+    garch_sim_alpha * garch_sim_returns[t - 1]^2 +
+    garch_sim_beta * garch_sim_variance[t - 1]
+  garch_sim_returns[t] <- sqrt(garch_sim_variance[t]) * rnorm(1)
+}
+
+garch_sim_results <- tibble(
+  t = 1:garch_sim_n,
+  return = garch_sim_returns,
+  variance = garch_sim_variance
+)
+
+head(garch_sim_results)
+```
+
+Looking at the resulting time series, we see that it indeed resembles the movement of a stock price quite well, with "calmer" times (at the start and around $t=750$ for example) and large and somewhat persistant volatility spikes (especially at around $t=500$).
+
+We also see, that the squared returns are indeed a pretty good, although noisy proxy for the (in the real world unobserved) variance.
+
+```{r}
+garch_sim_p1 <- garch_sim_results %>%
+  mutate(return_cum = cumprod(1 + return)) %>%
+  ggplot(aes(x = t, y = return_cum)) +
+  geom_line()
+
+garch_sim_p2 <- garch_sim_results %>%
+  ggplot(aes(x = t)) +
+  geom_line(aes(y = return^2))
+
+garch_sim_p3 <- garch_sim_results %>%
+  ggplot(aes(x = t)) +
+  geom_line(aes(y = variance))
+
+garch_sim_p1 + (garch_sim_p2 / garch_sim_p3)
+```
+
+Fitting a GARCH(1,1) model using the `{rugarch}` package. The result for $\omega$ is not statistically significant, but for $\alpha$ and $\beta$ they are and also quite close to the true values. So we can indeed recover the parameters.
+
+```{r}
+garch_sim_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)))
+garch_sim_fit <- ugarchfit(garch_sim_spec, data = garch_sim_returns)
+
+garch_sim_fit@fit$matcoef %>%
+  round(4)
+```
+
+We can also try and do this ourselves. While the Maximum-Likelihood-Estimator (MLE) is generally preferred for this kind of model, we also will take a look at a approach for minimizing the Sum of Squared Residuals (SSR). The following code implements the GARCH model as a function, defines functions to minimize and then uses `optim()` to (try to) find the minimum and thus the optimal parameters.
+
+```{r}
+f_garch <- function(omega, alpha, beta, returns_vec = portfolio_returns_vec) {
+  predicted_var_garch <- numeric(length(returns_vec))
+  predicted_var_garch[1] <- omega / (1 - alpha - beta) # Long-run variance
+
+  for (i in 2:length(returns_vec)) {
+    predicted_var_garch[i] <- omega +
+      alpha * returns_vec[i - 1]^2 +
+      beta * predicted_var_garch[i - 1]
+  }
+
+  predicted_var_garch
+}
+
+f_garch_ssr <- function(params, returns_vec, variances_vec) {
+  omega <- params[1]
+  alpha <- params[2]
+  beta <- params[3]
+
+  # Enforce constraints
+  if((alpha + beta) >= 1) return(1e10)
+
+  predicted_var <- f_garch(omega, alpha, beta, returns_vec)
+
+  # Sum of Squared Residuals (to minimize)
+  sum((predicted_var - variances_vec)^2)
+}
+
+f_garch_mle <- function(params, returns_vec) {
+  omega <- params[1]
+  alpha <- params[2]
+  beta <- params[3]
+
+  # Enforce constraints
+  if((alpha + beta) >= 1) return(1e10)
+
+  predicted_var <- f_garch(omega, alpha, beta, returns_vec)
+
+  # Negative log-likelihood (to minimize)
+  0.5 * sum(log(predicted_var) + (returns_vec^2) / predicted_var)
+}
+
+garch_sim_optim_ssr <- optim(
+  par = c(0.001, 0.29, 0.7),
+  fn = f_garch_ssr,
+  returns_vec = garch_sim_returns,
+  variances_vec = garch_sim_returns^2,
+  # Optimizing with bounds
+  method = "L-BFGS-B",
+  lower = c(1e-9, 1e-6, 1e-6),
+  upper = c(Inf, 0.999, 0.999)
+)
+# garch_sim_optim_ssr$par
+
+garch_sim_optim_mle <- optim(
+  par = c(0.001, 0.29, 0.7),
+  fn = f_garch_mle,
+  returns_vec = garch_sim_returns,
+  # Optimizing with bounds
+  method = "L-BFGS-B",
+  lower = c(1e-12, 1e-6, 1e-6),
+  upper = c(Inf, 0.999, 0.999)
+)
+# garch_sim_optim_mle$par
+```
+
+Here are the results. As we can see, they are not great for our own optimization. MLE just took the initial values for the optimization. And SSR is even further from the true values. In general, with this kind of problem the optimization is very sensitive to the initial values.
+
+```{r}
+tibble(
+  parameter = c("omega", "alpha", "beta"),
+  true = c(garch_sim_omega, garch_sim_alpha, garch_sim_beta),
+  rugarch = unname(coef(garch_sim_fit)[c("omega", "alpha1", "beta1")]),
+  ssr = garch_sim_optim_ssr$par,
+  mle = garch_sim_optim_mle$par
+) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 4)))
+```
+
+We can just try a brute force approach many different parameter combinations and see which one fits best. The following code applies about 250,000 parameter combinations. The accuracy can easily be improved by trying more parameter combinations (by setting `length.out = 500` for example). But then, the computational load increases dramatically.
+
+```{r}
+#| cache: true
+
+garch_sim_grid_search <- expand_grid(
+  omega = seq(0, 0.0001, length.out = 50),
+  alpha = seq(0.01, 0.99, length.out = 100),
+  beta = seq(0.01, 0.99, length.out = 100)
+) %>%
+  filter(alpha + beta < 1) %>%
+  mutate(
+    ssr = pmap_dbl(
+      list(omega, alpha, beta),
+      ~ f_garch_ssr(
+        params = c(..1, ..2, ..3),
+        returns_vec = garch_sim_returns,
+        variances_vec = garch_sim_returns^2
+      )
+    ),
+    mle = pmap_dbl(
+      list(omega, alpha, beta),
+      ~ f_garch_mle(
+        params = c(..1, ..2, ..3),
+        returns_vec = garch_sim_returns
+      )
+    )
+  )
+```
+
+And the recovered parameters here are actually better than with `rugarch`.
+
+```{r}
+# Best parameters with SSR
+garch_sim_grid_search %>%
+  arrange(ssr) %>%
+  select(-ssr, -mle) %>%
+  slice_head(n = 1) %>%
+  unlist() %>%
+  round(4)
+
+# Best parameters with MLE
+garch_sim_grid_search %>%
+  arrange(mle) %>%
+  select(-ssr, -mle) %>%
+  slice_head(n = 1) %>%
+  unlist() %>%
+  round(4)
+```
+
+## Real Data
+
+Lets look at an example using values for $\omega$, $\alpha$ and $\beta$
 
 ```{r}
 f_garch <- function(omega, alpha, beta, returns_vec = portfolio_returns_vec) {

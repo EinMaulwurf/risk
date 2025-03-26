@@ -5,3 +5,5 @@ deploy.sh
 _extensions/
 .Rhistory
 digest.txt
+src/*_files
+src/*_cache
