@@ -332,6 +332,8 @@ garch_sim_p1 + (garch_sim_p2 / garch_sim_p3)
 
 Fitting a GARCH(1,1) model using the `{rugarch}` package. The result for $\omega$ is not statistically significant, but for $\alpha$ and $\beta$ they are and also quite close to the true values. So we can indeed recover the parameters.
 
+Note that the output from this GARCH model also includes `mu`, `ar1` and `ba1` estimates. These stem from a ARMA model for the mean return. We assumed that the mean return is 0 ($\mathbb{E}(r_t)=0$) and thus did not care about modelling the returns. And because we also did not built any process for the returns into our simulation, all the parameters here are not statistically significant. We could add `mean.model = list(armaOrder = c(0, 0), include.mean = FALSE)` to the model specification to explicitly disable the ARMA process.
+
 ```{r}
 garch_sim_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)))
 garch_sim_fit <- ugarchfit(garch_sim_spec, data = garch_sim_returns)
@@ -341,6 +343,18 @@ garch_sim_fit@fit$matcoef %>%
 ```
 
 We can also try and do this ourselves. While the Maximum-Likelihood-Estimator (MLE) is generally preferred for this kind of model, we also will take a look at a approach for minimizing the Sum of Squared Residuals (SSR). The following code implements the GARCH model as a function, defines functions to minimize and then uses `optim()` to (try to) find the minimum and thus the optimal parameters.
+
+:::{.callout-note}
+# Maximum-Likelihood-Estimation
+*We will not go in depth on this.* MLE is a method for estimating parameters for a distribution. The key idea is to maximize the likelihood of observing the data given a set of parameters:
+$$
+\mathcal{L}(\mathbf{\theta}; \mathbf{x}) = \prod_{i=1}^n f(x_i; \mathbf{\theta})
+$$
+It is often more convenient to work with the logarithm of the likelihood function, called the log-likelihood function:
+$$
+\ell(\mathbf{\theta}; \mathbf{x}) = \sum_{i=1}^n \log f(x_i; \mathbf{\theta})
+$$
+:::
 
 ```{r}
 f_garch <- function(omega, alpha, beta, returns_vec = portfolio_returns_vec) {
@@ -473,114 +487,24 @@ garch_sim_grid_search %>%
 
 ## Real Data
 
-Lets look at an example using values for $\omega$, $\alpha$ and $\beta$
+Now, lets look again at our real-world portfolio. As we have seen above, we can get quite good results using the `rugarch` package, so that's what we will do here.
 
-```{r}
-f_garch <- function(omega, alpha, beta, returns_vec = portfolio_returns_vec) {
-  predicted_var_garch <- numeric(length(returns_vec))
-  predicted_var_garch[1] <- omega / (1 - alpha - beta) # Long-run variance
+When looking at the results from the model, we might first be interested in checking our assumption $\mathbb{E}=0$. While `mu` is statistically significant here, it is still close to zero. The `ar1` and `ma1` parameters are still not statistically significant (to the 5% level), which is good news for us. That means, that while the returns don't really have an expected value of zero, they at least are independent from each other.
 
-  for (i in 2:length(returns_vec)) {
-    predicted_var_garch[i] <- omega +
-      alpha * returns_vec[i - 1]^2 +
-      beta * predicted_var_garch[i - 1]
-  }
-
-  predicted_var_garch
-}
-
-portfolio_returns %>%
-  mutate(
-    # variance = portfolio_variance_vec,
-    variance_pred_exp_smoothing = f_pred_var(0.94),
-    variance_pred_garch = f_garch(0.0000011, 0.1, 0.899),
-  ) %>%
-  filter(date > ymd("2020-12-31")) %>%
-  pivot_longer(starts_with("variance")) %>%
-  ggplot(aes(x = date, y = value, color = name)) +
-  geom_line() +
-  # scale_y_continuous(transform = scales::pseudo_log_trans(sigma = 0.00001)) +
-  theme(legend.position = "top")
-```
-
-Now we want to find good values for our portfolio returns. For that, we will use SSR and MLE. MLE is generally preferred here, because it does only use the observed returns and not the variances (squared returns). *However, the MLE implementation is currently not working properly.*
-
-:::{.callout-note}
-# Maximum-Likelihood-Estimation
-*We will not go in depth on this.* MLE is a method for estimating parameters for a distribution. The key idea is to maximize the likelihood of observing the data given a set of parameters:
-$$
-\mathcal{L}(\mathbf{\theta}; \mathbf{x}) = \prod_{i=1}^n f(x_i; \mathbf{\theta})
-$$
-It is often more convenient to work with the logarithm of the likelihood function, called the log-likelihood function:
-$$
-\ell(\mathbf{\theta}; \mathbf{x}) = \sum_{i=1}^n \log f(x_i; \mathbf{\theta})
-$$
-:::
-
-```{r}
-f_garch_ssr <- function(params, returns_vec, variances_vec) {
-  omega <- params[1]
-  alpha <- params[2]
-  beta <- params[3]
-
-  predicted_var <- f_garch(omega, alpha, beta, returns_vec)
-
-  # Sum of Squared Residuals (to minimize)
-  sum((predicted_var - variances_vec)^2)
-}
-
-f_garch_mle <- function(params, returns_vec) {
-  omega <- params[1]
-  alpha <- params[2]
-  beta <- params[3]
-
-  predicted_var <- f_garch(omega, alpha, beta, returns_vec)
-
-  # Negative log-likelihood (to minimize)
-  -0.5 * sum(log(predicted_var) + (returns_vec^2) / predicted_var)
-}
-
-garch_optim_ssr <- optim(
-  par = c(0.0000011, 0.1, 0.899),
-  fn = f_garch_ssr,
-  returns_vec = portfolio_returns_vec,
-  variances_vec = portfolio_variance_vec,
-  # Optimizing with bounds fails
-  # method = "L-BFGS-B",
-  # lower = c(1e-9, 1e-6, 1e-6),
-  # upper = c(Inf, 0.999, 0.999)
-)
-garch_optim_ssr$par
-
-garch_optim_mle <- optim(
-  par = c(0.0000011, 0.1, 0.899),
-  fn = f_garch_mle,
-  returns_vec = portfolio_returns_vec,
-  # Optimizing with bounds fails
-  # method = "L-BFGS-B",
-  # lower = c(1e-12, 1e-6, 1e-6),
-  # upper = c(Inf, 0.999, 0.999)
-)
-garch_optim_mle$par
-```
-
-There is also a dedicated packages for GARCH modelling in R, `{rugarch}`, which allows for a more robust estimation. It also uses a MLE approach under the hood.
+Plotting the model, we can see that the GARCH model looks quite similar to the Exponential Smoothing Model. And our variance proxy (using the squared returns) is again the most noisy.
 
 ```{r}
 garch_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)))
 garch_fit <- ugarchfit(garch_spec, data = portfolio_returns_vec)
-coef(garch_fit)
-```
 
-Now plot with the optimal GARCH parameters (from `{rugarch}`).
+garch_fit@fit$matcoef %>%
+  round(4)
 
-```{r}
 portfolio_returns %>%
   mutate(
-    # variance = portfolio_variance_vec,
-    variance_pred_exp_smoothing = f_pred_var(0.94),
-    variance_pred_garch = f_garch(0.0000011, 0.1, 0.899),
-    variance_pred_garch_opt = f_garch(
+    variance_proxy = portfolio_returns_vec^2,
+    variance_pred_exp_smoothing = f_pred_var(0.73),
+    variance_pred_garch = f_garch(
       coef(garch_fit)["omega"], coef(garch_fit)["alpha1"], coef(garch_fit)["beta1"]
     ),
   ) %>%
@@ -588,6 +512,22 @@ portfolio_returns %>%
   pivot_longer(starts_with("variance")) %>%
   ggplot(aes(x = date, y = value, color = name)) +
   geom_line() +
-  # scale_y_continuous(transform = scales::pseudo_log_trans(sigma = 0.00001)) +
-  theme(legend.position = "top")
+  theme(legend.position = "none")+
+  facet_wrap(~name)
+```
+
+Looking back at the PACF plot from earlier, we saw that the first *two* lags were significant. But until now, we only used the first lag with our $\text{GARCH}(1,1)$ model. Let's change that now and estimate a $\text{GARCH}(2,2)$ model:
+
+$$
+\sigma_t^2 = \omega + \alpha_1 r_{t-1}^2 + \alpha_2 r_{t-2}^2 + \beta_1 \sigma_{t-1}^2 + \beta_2 \sigma_{t-1}^2
+$$
+
+We can see, that the ARMA part looks like before, but now we get `alpha1` and `alpha2` as well as `beta1` and `beta2`. Of these, only `beta1` is not statistically significant. That suggests, that a $\text{GARCH}(2,2)$ is a good fit for our data.
+
+```{r}
+garch_22_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(2, 2)))
+garch_22_fit <- ugarchfit(garch_22_spec, data = portfolio_returns_vec)
+
+garch_22_fit@fit$matcoef %>%
+  round(4)
 ```
