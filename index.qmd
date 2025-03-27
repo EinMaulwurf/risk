@@ -25,11 +25,12 @@ title: Market Risk Analysis Toolkit
 This site is not yet completed and may contain bugs and wrong information.
 :::
 
-Welcome to this demonstration project showcasing essential market risk management techniques used in institutional portfolio analysis. This site combines theoretical foundations with practical implementation, mirroring tools a risk manager might use daily to monitor exposure, calculate capital requirements, and comply with financial regulations.
+Welcome to this demonstration project showcasing essential market risk management techniques used in institutional portfolio analysis. This site combines theoretical foundations with practical implementation, mirroring tools a risk manager might use daily to monitor exposure, calculate capital requirements, model volatility, and comply with financial regulations.
 
-- **Interactive Risk Simulator**: Build custom portfolios with S&P 500 constituents, analyze historical returns, and compute live VaR/ES metrics using Shiny
-- **Methodology Deep Dives**: Comparison of historical simulation vs parametric approaches 
-- **Distribution Analysis**: Visual assessment of non-normal return patterns and tail risks
+- **Interactive Risk Simulator**: Build custom portfolios with S&P 500 constituents, analyze historical returns, and compute live VaR/ES metrics using Shiny.
+- **Methodology Deep Dives**: Comparison of historical simulation vs parametric approaches for VaR/ES.
+- **Distribution Analysis**: Visual assessment of non-normal return patterns and tail risks.
+- **Volatility Modelling**: Exploration of time-varying volatility using models like GARCH, including simulation and forecasting.
 
 The code for this project is available on [GitHub](https://github.com/EinMaulwurf/risk). Feedback is welcome!
 
@@ -37,11 +38,10 @@ The code for this project is available on [GitHub](https://github.com/EinMaulwur
 
 - [ ] Go more in-depth on how to calculate the covariance matrix of the returns and the mean and variance of the portfolio using linear algebra (for example $\sigma^2 = \mathbf{w}' \mathbf{\Sigma} \mathbf{w}$).
 - [x] Use eigenvectors and eigenvalues from the returns matrix for monte carlo simulation, see [here](https://ocw.mit.edu/courses/18-s096-topics-in-mathematics-with-applications-in-finance-fall-2013/resources/mit18_s096f13_lecnote7/).
-- [ ] Model VaR over more than one time period. For that, volatility clustering should be taken into account with models like (G)ARCH.
+- [x] Model VaR over more than one time period. For that, volatility clustering should be taken into account with models like (G)ARCH.
 - [x] Use different parametric models besides the normal distribution. Perhaps the t-distribution for fat tails.
 - [ ] Build portfolio with other assets besides stocks, like bonds, FX or derivatives.
 - [ ] Clean up and align notation (for example, I sometimes use $\alpha=1\%$ and $\alpha=99\%$ to mean the same for the confidence level of VaR).
 - [ ] Write more about pros and cons of arithmetic returns vs log returns.
-- [ ] Show VaR calculations for time periods longer than one day.
 - [ ] Show how rolling VaR (1, 3, 5 year) changes over time.
-- [ ] Build a simulation for GARCH and then estimate the parameters.
+- [x] Build a simulation for GARCH and then estimate the parameters.
