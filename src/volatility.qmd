@@ -375,7 +375,9 @@ f_garch_ssr <- function(params, returns_vec, variances_vec) {
   beta <- params[3]
 
   # Enforce constraints
-  if((alpha + beta) >= 1) return(1e10)
+  if ((alpha + beta) >= 1) {
+    return(1e10)
+  }
 
   predicted_var <- f_garch(omega, alpha, beta, returns_vec)
 
@@ -389,7 +391,9 @@ f_garch_mle <- function(params, returns_vec) {
   beta <- params[3]
 
   # Enforce constraints
-  if((alpha + beta) >= 1) return(1e10)
+  if ((alpha + beta) >= 1) {
+    return(1e10)
+  }
 
   predicted_var <- f_garch(omega, alpha, beta, returns_vec)
 
@@ -514,7 +518,7 @@ portfolio_returns %>%
   pivot_longer(starts_with("variance")) %>%
   ggplot(aes(x = date, y = value, color = name)) +
   geom_line() +
-  theme(legend.position = "none")+
+  theme(legend.position = "none") +
   facet_wrap(~name)
 ```
 
@@ -558,18 +562,20 @@ portfolio_returns_predicted <- tibble(
 )
 
 portfolio_returns_combined <- portfolio_returns %>%
-  mutate(variance = garch_fit@fit$var,
-         type = "fitted") %>%
+  mutate(
+    variance = garch_fit@fit$var,
+    type = "fitted"
+  ) %>%
   rbind(portfolio_returns_predicted)
 
 portfolio_returns_combined %>%
   tail(500) %>%
-  mutate(return_cum = cumprod(1+return), .keep = "unused") %>%
+  mutate(return_cum = cumprod(1 + return), .keep = "unused") %>%
   mutate(relative_return_cum = (return_cum / last(return_cum[type == "fitted"])) - 1) %>%
   pivot_longer(cols = c(relative_return_cum, variance)) %>%
-  ggplot(aes(x = date, y = value, color = type))+
-  geom_line()+
-  facet_wrap(~name, ncol = 2, scales = "free")+
+  ggplot(aes(x = date, y = value, color = type)) +
+  geom_line() +
+  facet_wrap(~name, ncol = 2, scales = "free") +
   theme(legend.position = "top")
 ```
 
@@ -599,6 +605,8 @@ And now let's calculate and plot the mean returns from our simulation (which sho
 And we indeed see that our simulation results line up with the forecast and shows around +30% at the end of the year. With the confidence interval we see that our portfolio is not expected to fall below -10% during the year and 5% at the end of the coming year. And the upside is huge, with a best case scenario at almost +75%.
 
 ```{r}
+#| warning: false
+
 as_tibble(garch_sim_forecast@simulation$seriesSim) %>%
   mutate(date = generate_weekday_dates(1:n(), start_date = last(portfolio_returns$date))) %>%
   pivot_longer(cols = starts_with("V"), names_to = "sim_run", values_to = "return") %>%
@@ -618,10 +626,10 @@ as_tibble(garch_sim_forecast@simulation$seriesSim) %>%
       filter(year(date) >= 2024) %>%
       mutate(
         return_cum = cumprod(1 + return),
-        return_cum_adjusted = (return_cum / last(return_cum))-1
+        return_cum_adjusted = (return_cum / last(return_cum)) - 1
       ),
     mapping = aes(y = return_cum_adjusted)
-  ) + 
+  ) +
   labs(y = "relative_return_cum")
 ```
 
