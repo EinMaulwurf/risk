@@ -548,17 +548,54 @@ portfolio_returns_combined <- portfolio_returns %>%
 
 portfolio_returns_combined %>%
   tail(500) %>%
-  ggplot(aes(x = date, y = variance, color = type))+
-  geom_line()
-
-portfolio_returns_combined %>%
-  tail(500) %>%
   mutate(return_cum = cumprod(1+return), .keep = "unused") %>%
   pivot_longer(cols = c(return_cum, variance)) %>%
   ggplot(aes(x = date, y = value, color = type))+
   geom_line()+
   facet_wrap(~name, ncol = 2, scales = "free")+
   theme(legend.position = "top")
+```
+
+## Simulation-Forecast
+
+Using the GARCH(1,1) model fitted above, we can also simulate possible future return paths. This could then be used for Value-at-Risk calculations, for example.
+
+*Not finished*
+
+```{r}
+#| eval: false
+
+set.seed(1)
+garch_sim_horizon <- 250
+
+test_sim <- ugarchsim(
+  garch_fit, n.sim = garch_sim_horizon, m.sim = 500, 
+  startMethod = "sample",
+  prereturns = tail(portfolio_returns_vec, 1)
+)
+
+# as_tibble(test_sim@simulation$seriesSim) %>%
+#   mutate(t = 1:n()) %>%
+#   pivot_longer(cols = starts_with("V"), names_to = "sim_run", values_to = "return") %>%
+#   mutate(return_cum = cumprod(1+return), .by = sim_run) %>%
+#   ggplot(aes(x = t, y = return_cum, group = sim_run))+
+#   geom_line(alpha = 0.1)
+
+as_tibble(test_sim@simulation$seriesSim) %>%
+  mutate(t = 1:n()) %>%
+  pivot_longer(cols = starts_with("V"), names_to = "sim_run", values_to = "return") %>%
+  mutate(return_cum = cumprod(1+return), .by = sim_run) %>%
+  slice_max(order_by = t, by = sim_run) %>%
+  ggplot(aes(x = return_cum))+
+  geom_density()
+
+as_tibble(test_sim@simulation$seriesSim) %>%
+  mutate(t = 1:n()) %>%
+  pivot_longer(cols = starts_with("V"), names_to = "sim_run", values_to = "return") %>%
+  mutate(return_cum = cumprod(1+return) - 1, .by = sim_run) %>%
+  filter(t == 21) %>% # one month
+  pull(return_cum) %>%
+  quantile(probs = 0.01)
 ```
 
 ## GARCH(2,2)
