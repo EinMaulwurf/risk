@@ -120,7 +120,8 @@ for (i in 1:nrow(pq_values)) {
 paste("Best p: ", best_p, " | Best q: ", best_q, sep = "")
 ```
 
-# Moving Average
+# Moving Average Models
+## Simple Moving Average
 
 We could try and model the variance using a simple moving average of the $m$ past days.
 
@@ -154,8 +155,7 @@ portfolio_returns %>%
   facet_wrap(~name, ncol = 1, scales = "free")
 ```
 
-
-# Exponential Smoothing
+## Exponential Smoothing
 
 With the moving average, there is the implicit assumption that all $m$ past variances have the same impact on todays variance. This is probably not the case as can be seen in the ACF plot which shows a decreasing autocorrelation. That's why we'll look at exponential smoothing next:
 
@@ -255,7 +255,6 @@ portfolio_returns %>%
     aes(y = variance_pred), fill = "red"
   )
 ```
-
 
 # GARCH
 
@@ -435,7 +434,9 @@ tibble(
   mutate(across(where(is.numeric), ~ round(.x, 4)))
 ```
 
-We can just try a brute force approach many different parameter combinations and see which one fits best. The following code applies about 250,000 parameter combinations. The accuracy can easily be improved by trying more parameter combinations (by setting `length.out = 500` for example). But then, the computational load increases dramatically.
+We can just try a brute force approach many different parameter combinations and see which one fits best. The following code applies about 250,000 parameter combinations. We could reduce the number of combinations by setting a lower bound as well. If we know for example from past experience, that $\alpha + \beta \geq 0.8$, we only have about 90.000 combinations left.
+
+The accuracy can easily be improved by trying more parameter combinations (by setting `length.out = 500` for example). But then, the computational load increases dramatically.
 
 ```{r}
 #| cache: true
@@ -445,7 +446,7 @@ garch_sim_grid_search <- expand_grid(
   alpha = seq(0.01, 0.99, length.out = 100),
   beta = seq(0.01, 0.99, length.out = 100)
 ) %>%
-  filter(alpha + beta < 1) %>%
+  filter(alpha + beta < 1, alpha + beta >= 0.8) %>%
   mutate(
     ssr = pmap_dbl(
       list(omega, alpha, beta),
@@ -470,17 +471,15 @@ And the recovered parameters here are actually better than with `rugarch`.
 ```{r}
 # Best parameters with SSR
 garch_sim_grid_search %>%
-  arrange(ssr) %>%
-  select(-ssr, -mle) %>%
-  slice_head(n = 1) %>%
+  slice_min(n = 1, order_by = ssr) %>%
+  select(omega, alpha, beta) %>%
   unlist() %>%
   round(4)
 
 # Best parameters with MLE
 garch_sim_grid_search %>%
-  arrange(mle) %>%
-  select(-ssr, -mle) %>%
-  slice_head(n = 1) %>%
+  slice_min(n = 1, order_by = mle) %>%
+  select(omega, alpha, beta) %>%
   unlist() %>%
   round(4)
 ```
@@ -494,7 +493,10 @@ When looking at the results from the model, we might first be interested in chec
 Plotting the model, we can see that the GARCH model looks quite similar to the Exponential Smoothing Model. And our variance proxy (using the squared returns) is again the most noisy.
 
 ```{r}
-garch_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)))
+garch_spec <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  # mean.model = list(armaOrder = c(0, 0), include.mean = FALSE) # Add this for restriction
+)
 garch_fit <- ugarchfit(garch_spec, data = portfolio_returns_vec)
 
 garch_fit@fit$matcoef %>%
@@ -515,6 +517,51 @@ portfolio_returns %>%
   theme(legend.position = "none")+
   facet_wrap(~name)
 ```
+
+## Forecasting
+
+Now that we have a solid model, we can try to forecast the variance and returns for the next, in this example, 100 days. The red line in the plots show the fitted values for return and variance, while the blue line shows the forecast.
+
+We can see that the (cumulated) return forecast is going straight up. Thats because in our `rugarch` model, the `mu` is not zero. If it was or if we had set the restriction, we would see a horizontal line here.
+
+For the variance, we see that it is going down and approaching the long-run variance $\sigma^2 = \frac{\omega}{1 - \alpha - \beta}$.
+
+```{r}
+forecast_horizon <- 100
+garch_forecast <- ugarchforecast(garch_fit, n.ahead = forecast_horizon)
+
+portfolio_returns_predicted <- tibble(
+  date = seq(
+    from = max(portfolio_returns$date)+1,
+    to = max(portfolio_returns$date)+forecast_horizon,
+    by = "1 day"
+    ),
+  return = garch_forecast@forecast$seriesFor,
+  variance = (garch_forecast@forecast$sigmaFor)^2,
+  type = "prediction"
+)
+
+portfolio_returns_combined <- portfolio_returns %>%
+  mutate(variance = garch_fit@fit$var,
+         type = "fitted") %>%
+  rbind(portfolio_returns_predicted)
+
+portfolio_returns_combined %>%
+  tail(500) %>%
+  ggplot(aes(x = date, y = variance, color = type))+
+  geom_line()
+
+portfolio_returns_combined %>%
+  tail(500) %>%
+  mutate(return_cum = cumprod(1+return), .keep = "unused") %>%
+  pivot_longer(cols = c(return_cum, variance)) %>%
+  ggplot(aes(x = date, y = value, color = type))+
+  geom_line()+
+  facet_wrap(~name, ncol = 2, scales = "free")+
+  theme(legend.position = "top")
+```
+
+## GARCH(2,2)
 
 Looking back at the PACF plot from earlier, we saw that the first *two* lags were significant. But until now, we only used the first lag with our $\text{GARCH}(1,1)$ model. Let's change that now and estimate a $\text{GARCH}(2,2)$ model:
 
