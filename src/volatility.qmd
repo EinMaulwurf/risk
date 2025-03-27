@@ -266,7 +266,7 @@ but we will focus on the simpler, but still powerful and most often used case of
 $$
 \sigma_t^2 = \omega + \alpha r_{t-1}^2 + \beta \sigma_{t-1}^2
 $$
-with $\alpha + \beta < 1$.
+with $\alpha + \beta < 1$, because we want stationarity.
 
 We can define the long-run average variance, also called unconditional variance, as $\sigma^2$ (without the subscript $t$) and rewrite the formula as
 $$
@@ -520,22 +520,38 @@ portfolio_returns %>%
 
 ## Forecasting
 
-Now that we have a solid model, we can try to forecast the variance and returns for the next, in this example, 100 days. The red line in the plots show the fitted values for return and variance, while the blue line shows the forecast.
+Now that we have a solid model, we can try to forecast the variance and returns for the next, in this example, 100 days.
 
-We can see that the (cumulated) return forecast is going straight up. Thats because in our `rugarch` model, the `mu` is not zero. If it was or if we had set the restriction, we would see a horizontal line here.
+But first, to plot the returns nicely with the historic portfolio returns, we'll define a function to turn the simulated returns sequence into dates. For that, we only want weekdays where there is trading.
 
-For the variance, we see that it is going down and approaching the long-run variance $\sigma^2 = \frac{\omega}{1 - \alpha - \beta}$.
+```{r}
+generate_weekday_dates <- function(day_indices, start_date) {
+  start_date <- ymd(start_date) + 1
+  max_index <- max(day_indices)
+
+  # Estimate number of calendar days needed (adding a buffer)
+  estimated_calendar_days <- ceiling(max_index * 7 / 5) + 10
+
+  all_dates <- seq(start_date, by = "day", length.out = estimated_calendar_days)
+
+  # Filter for weekdays
+  weekday_dates <- all_dates[wday(all_dates, week_start = 1) <= 5]
+  weekday_dates[day_indices]
+}
+```
+
+The red line in the plots show the fitted values for return and variance, while the blue line shows the forecast.
+
+We can see that the return forecast is going straight up. The last fitted observation is the base (0), and future predictions show cumulative returns relative to this base. That's because in our `rugarch` model, the `mu` is not zero. Our model seems to indicate an expected 10% cumulative return over the next 100 trading days. If it was or if we had set the restriction discussed above, we would see a horizontal line here.
+
+For the variance, we see that it is going down and approaching the long-run variance $\sigma^2 = \frac{\omega}{1 - \alpha - \beta}$. If our $\alpha + \beta$ were smaller, we would see a faster drop, as past volatility shocks would not "linger" longer.
 
 ```{r}
 forecast_horizon <- 100
 garch_forecast <- ugarchforecast(garch_fit, n.ahead = forecast_horizon)
 
 portfolio_returns_predicted <- tibble(
-  date = seq(
-    from = max(portfolio_returns$date)+1,
-    to = max(portfolio_returns$date)+forecast_horizon,
-    by = "1 day"
-    ),
+  date = generate_weekday_dates(1:forecast_horizon, last(portfolio_returns$date)),
   return = garch_forecast@forecast$seriesFor,
   variance = (garch_forecast@forecast$sigmaFor)^2,
   type = "prediction"
@@ -549,7 +565,8 @@ portfolio_returns_combined <- portfolio_returns %>%
 portfolio_returns_combined %>%
   tail(500) %>%
   mutate(return_cum = cumprod(1+return), .keep = "unused") %>%
-  pivot_longer(cols = c(return_cum, variance)) %>%
+  mutate(relative_return_cum = (return_cum / last(return_cum[type == "fitted"])) - 1) %>%
+  pivot_longer(cols = c(relative_return_cum, variance)) %>%
   ggplot(aes(x = date, y = value, color = type))+
   geom_line()+
   facet_wrap(~name, ncol = 2, scales = "free")+
@@ -558,45 +575,57 @@ portfolio_returns_combined %>%
 
 ## Simulation-Forecast
 
-Using the GARCH(1,1) model fitted above, we can also simulate possible future return paths. This could then be used for Value-at-Risk calculations, for example.
-
-*Not finished*
+Using the GARCH(1,1) model fitted above, we can also simulate possible future return paths. This could then be used for Value-at-Risk calculations, for example. We'll again use the `rugarch` package in favor of our own functions, as it is well optimized and efficient. The following code generates 5000 simulations for one year (about 250 trading days) into the future.
 
 ```{r}
-#| eval: false
-
 set.seed(1)
 garch_sim_horizon <- 250
+garch_sim_number <- 5000
 
-test_sim <- ugarchsim(
-  garch_fit, n.sim = garch_sim_horizon, m.sim = 500, 
+garch_sim_forecast <- ugarchsim(
+  garch_fit,
+  n.sim = garch_sim_horizon,
+  m.sim = garch_sim_number,
   startMethod = "sample",
   prereturns = tail(portfolio_returns_vec, 1)
 )
 
-# as_tibble(test_sim@simulation$seriesSim) %>%
-#   mutate(t = 1:n()) %>%
-#   pivot_longer(cols = starts_with("V"), names_to = "sim_run", values_to = "return") %>%
-#   mutate(return_cum = cumprod(1+return), .by = sim_run) %>%
-#   ggplot(aes(x = t, y = return_cum, group = sim_run))+
-#   geom_line(alpha = 0.1)
-
-as_tibble(test_sim@simulation$seriesSim) %>%
-  mutate(t = 1:n()) %>%
-  pivot_longer(cols = starts_with("V"), names_to = "sim_run", values_to = "return") %>%
-  mutate(return_cum = cumprod(1+return), .by = sim_run) %>%
-  slice_max(order_by = t, by = sim_run) %>%
-  ggplot(aes(x = return_cum))+
-  geom_density()
-
-as_tibble(test_sim@simulation$seriesSim) %>%
-  mutate(t = 1:n()) %>%
-  pivot_longer(cols = starts_with("V"), names_to = "sim_run", values_to = "return") %>%
-  mutate(return_cum = cumprod(1+return) - 1, .by = sim_run) %>%
-  filter(t == 21) %>% # one month
-  pull(return_cum) %>%
-  quantile(probs = 0.01)
+# Example output
+fitted(garch_sim_forecast)[1:3, 1:3]
 ```
+
+And now let's calculate and plot the mean returns from our simulation (which should line up with the forecast from above) as well as the 5 and 95% quantiles for a 90% confidence interval (we could of course choose different values here).
+
+And we indeed see that our simulation results line up with the forecast and shows around +30% at the end of the year. With the confidence interval we see that our portfolio is not expected to fall below -10% during the year and 5% at the end of the coming year. And the upside is huge, with a best case scenario at almost +75%.
+
+```{r}
+as_tibble(garch_sim_forecast@simulation$seriesSim) %>%
+  mutate(date = generate_weekday_dates(1:n(), start_date = last(portfolio_returns$date))) %>%
+  pivot_longer(cols = starts_with("V"), names_to = "sim_run", values_to = "return") %>%
+  mutate(return_cum = cumprod(1 + return) - 1, .by = sim_run) %>%
+  summarise(
+    return_cum_mean = mean(return_cum),
+    return_cum_05 = quantile(return_cum, probs = 0.05),
+    return_cum_95 = quantile(return_cum, probs = 0.95),
+    .by = date
+  ) %>%
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = return_cum_mean)) +
+  geom_line(aes(y = return_cum_05), linetype = "dashed") +
+  geom_line(aes(y = return_cum_95), linetype = "dashed") +
+  geom_line(
+    data = portfolio_returns %>%
+      filter(year(date) >= 2024) %>%
+      mutate(
+        return_cum = cumprod(1 + return),
+        return_cum_adjusted = (return_cum / last(return_cum))-1
+      ),
+    mapping = aes(y = return_cum_adjusted)
+  ) + 
+  labs(y = "relative_return_cum")
+```
+
+We might conclude that our model is a bit too optimistic, as these returns are quite high. So perhaps more data for fitting or a more sophisticated model are appropriate.
 
 ## GARCH(2,2)
 
